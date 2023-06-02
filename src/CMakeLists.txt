@@ -51,6 +51,10 @@ if(FUZZ)
 	list(APPEND FIDO_SOURCES ../fuzz/wrap.c)
 endif()
 
+if(BLUETOOTH_LINUX)
+	list(APPEND FIDO_SOURCES bluetooth.c bluetooth_linux.c)
+endif()
+
 if(NFC_LINUX)
 	list(APPEND FIDO_SOURCES netlink.c nfc.c nfc_linux.c)
 endif()
@@ -123,6 +127,7 @@ list(APPEND TARGET_LIBRARIES
 	${HIDAPI_LIBRARIES}
 	${ZLIB_LIBRARIES}
 	${PCSC_LIBRARIES}
+	${BLUETOOTH_LIBRARIES}
 )
 
 # static library
