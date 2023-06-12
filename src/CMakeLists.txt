@@ -55,6 +55,10 @@ if(BLUETOOTH_LINUX)
 	list(APPEND FIDO_SOURCES bluetooth.c bluetooth_linux.c)
 endif()
 
+if(BLUETOOTH_MACOS)
+	list(APPEND FIDO_SOURCES bluetooth.c bluetooth_macos.m)
+endif()
+
 if(NFC_LINUX)
 	list(APPEND FIDO_SOURCES netlink.c nfc.c nfc_linux.c)
 endif()
