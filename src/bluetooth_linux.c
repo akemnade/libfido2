@@ -358,6 +358,10 @@ fido_bluetooth_open(const char *path)
 		if (!(revision & 0x20))
 			goto out;
 
+		if (0 > sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.service_revision,
+				DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, 0x20, 0))
+			goto out;
+
 		newdev->controlpoint_size = ((size_t)cp_len[0] << 8) + cp_len[1];
 		newdev->reply_buf = calloc(1, newdev->controlpoint_size);
 
