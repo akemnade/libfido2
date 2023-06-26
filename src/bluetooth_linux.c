@@ -456,22 +456,22 @@ fido_bluetooth_write(void *handle, const unsigned char *buf, size_t len)
 					       dev->paths.control_point,
 					       DBUS_CHAR_IFACE, "WriteValue");
 	if (r < 0)
-		return -1;
+		goto out;
 
 	r = sd_bus_message_append_array(send_msg, 'y', buf, len);
 	if (r < 0)
-		return -1;
+		goto out;
 
 	sd_bus_message_append(send_msg, "a{sv}", 0);
 	if (r < 0)
-		return -1;
+		goto out;
 
 	dev->reply_len = 0;
-	r = sd_bus_call(dev->bus, send_msg, 0, NULL,NULL);
-	if (r < 0)
-		return -1;
+	r = sd_bus_call(dev->bus, send_msg, 0, NULL, NULL);
+out:
+	sd_bus_message_unref(send_msg);
 
-	return 0;
+	return r;
 }
 
 size_t
