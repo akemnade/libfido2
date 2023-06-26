@@ -533,13 +533,16 @@ fido_bluetooth_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 	ctx.bus = bus;
 	ret = sd_bus_call_method(bus, "org.bluez", "/", "org.freedesktop.DBus.ObjectManager",
 				 "GetManagedObjects", NULL, &reply, "");
-	if (ret <= 0)
+	if (ret <= 0) {
+		sd_bus_unref(bus);
 		return FIDO_ERR_INTERNAL;
+	}
 
 	sd_bus_message_rewind(reply, 1);
 	/* search what is connected */
 	iterate_over_all_objs(reply, fido_bluetooth_add_device, &ctx);
 
 	sd_bus_message_unref(reply);
+	sd_bus_unref(bus);
 	return FIDO_OK;
 }
