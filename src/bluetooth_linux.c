@@ -18,8 +18,6 @@
 #define DBUS_ADAPTER_IFACE "org.bluez.Adapter1"
 #define DBUS_GATTMANAGER_IFACE "org.bluez.GattManager1"
 
-static sd_bus_slot *profile_slot = NULL;
-static sd_bus_slot *profile_manager_slot = NULL;
 static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, bool allow_unconnected, const char **name);
 struct ble {
 	sd_bus *bus;
@@ -42,7 +40,6 @@ struct manifest_ctx {
 	fido_dev_info_t *devlist;
 	size_t ilen;
 	size_t *olen;
-	bool scanning;
 };
 
 static void found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *reply)
@@ -134,73 +131,6 @@ static void found_gatt_service(struct ble *newdev, const char *path, sd_bus_mess
 	sd_bus_message_exit_container(reply);
 	if (matches && service_found) {
 		newdev->paths.service = strdup(path);
-	}
-}
-
-static int registered_application(sd_bus_message *reply, void *user_data, sd_bus_error *ret_error)
-{
-	(void)reply;
-	(void)ret_error;
-	*(bool *)user_data = true;
-	return 0;
-}
-
-static void disable_ble_adapters(void *data, const char *path, sd_bus_message *reply)
-{
-	const char *iface;
-	sd_bus *bus = (sd_bus *) data;
-	if (sd_bus_message_read_basic(reply, 's', &iface) >= 0) {
-		if (!strcmp(iface, DBUS_GATTMANAGER_IFACE)) {
-			bool finished = false;
-			int ret;
-			sd_bus_call_method_async(bus, NULL, "org.bluez", path, iface, "UnregisterApplication",
-						 registered_application, &finished, "o", "/org/fido");
-			while (!finished) {
-				ret = sd_bus_process(bus, NULL);
-				if (ret < 0)
-					return;
-
-				if (ret == 0) {
-					ret = sd_bus_wait(bus, UINT64_MAX);
-					if (ret <= 0)
-						return;
-				}
-			}
-		}
-		sd_bus_message_skip(reply, "a{sv}");
-	}
-}
-
-static void enable_ble_adapters(void *data, const char *path, sd_bus_message *reply)
-{
-	const char *iface;
-	struct manifest_ctx *ctx = (struct manifest_ctx *) data;
-	if (sd_bus_message_read_basic(reply, 's', &iface) >= 0) {
-		if (!strcmp(iface, DBUS_ADAPTER_IFACE)) {
-			/* will also fail if adapter is not powered */
-			if (sd_bus_call_method(ctx->bus, "org.bluez", path, iface,
-					       "StartDiscovery", NULL, NULL, "") >= 0) {
-				ctx->scanning = true;
-			}
-		} else if (!strcmp(iface, DBUS_GATTMANAGER_IFACE)) {
-			bool finished = false;
-			int ret;
-			sd_bus_call_method_async(ctx->bus, NULL, "org.bluez", path, iface, "RegisterApplication",
-						 registered_application, &finished, "oa{sv}", "/org/fido", 0);
-			/* we need to do it async to enable introspection of our profile */
-			while (!finished) {
-				ret = sd_bus_process(ctx->bus, NULL);
-				if (ret < 0)
-					return;
-
-				if (ret == 0) {
-					ret = sd_bus_wait(ctx->bus, UINT64_MAX);
-					if (ret <= 0)
-						return;
-				}
-			}
-		}
-		sd_bus_message_skip(reply, "a{sv}");
 	}
 }
 
@@ -580,56 +510,6 @@ static void fido_bluetooth_add_device(void *data, const char *path, sd_bus_messa
 	}
 }
 
-static int release_profile_cb(sd_bus_message *m, void *userdata, sd_bus_error *error) {
-	(void)m;
-	(void)userdata;
-	(void)error;
-	return 0;
-}
-
-static int get_fido_uuid(sd_bus *bus, const char *path, const char *interface, const char *property,
-                                            sd_bus_message *reply, void *userdata, sd_bus_error *ret_error)
-{
-	(void) bus;
-	(void) path;
-	(void) interface;
-	(void) property;
-	(void) userdata;
-	(void) ret_error;
-
-	return sd_bus_message_append(reply, "as",1 ,FIDO_SERVICE_UUID);
-}
-
-static void add_profile(sd_bus *bus)
-{
-	static const sd_bus_vtable vtable[] = {
-		SD_BUS_VTABLE_START(0),
-		SD_BUS_METHOD("Release", NULL, NULL, release_profile_cb, 0),
-		SD_BUS_PROPERTY("UUIDs", "as", get_fido_uuid, 0,
-				SD_BUS_VTABLE_PROPERTY_CONST),
-		SD_BUS_VTABLE_END,
-	};
-
-	if (!profile_manager_slot)
-		sd_bus_add_object_manager(bus, &profile_manager_slot, "/org/fido");
-	if (!profile_slot)
-		sd_bus_add_object_vtable(bus, &profile_slot, "/org/fido/bleprofile",
-					 DBUS_PROFILE_IFACE, vtable, NULL);
-}
-
-static void remove_profile(void)
-{
-	if (profile_manager_slot) {
-		sd_bus_slot_unref(profile_manager_slot);
-		profile_manager_slot = NULL;
-	}
-
-	if (profile_slot) {
-		sd_bus_slot_unref(profile_slot);
-		profile_slot = NULL;
-	}
-}
-
 int
 fido_bluetooth_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 {
@@ -651,26 +531,14 @@ fido_bluetooth_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 		return FIDO_ERR_INTERNAL;
 
 	ctx.bus = bus;
-	ctx.scanning = false;
-	add_profile(bus);
 	ret = sd_bus_call_method(bus, "org.bluez", "/", "org.freedesktop.DBus.ObjectManager",
 				 "GetManagedObjects", NULL, &reply, "");
 	if (ret <= 0)
 		return FIDO_ERR_INTERNAL;
 
 	sd_bus_message_rewind(reply, 1);
-	/* register profile to let BLE fido devices connect */
-	iterate_over_all_objs(reply, enable_ble_adapters, &ctx);
-	/* if we are scanning, wait for something to be found */
-	if (ctx.scanning)
-		sleep(3);
-
-	sd_bus_message_rewind(reply, 1);
 	/* search what is connected */
 	iterate_over_all_objs(reply, fido_bluetooth_add_device, &ctx);
-	sd_bus_message_rewind(reply, 1);
-	iterate_over_all_objs(reply, disable_ble_adapters, bus);
-	remove_profile();
 
 	sd_bus_message_unref(reply);
 	return FIDO_OK;
