@@ -8,9 +8,9 @@
 #define CTAPBLE_ERROR 0xBF
 
 static int
-fido_bluetooth_fragment_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
+fido_ble_fragment_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
 {
-	size_t fragment_len = fido_bluetooth_get_cp_size(d);
+	size_t fragment_len = fido_ble_get_cp_size(d);
 	u_char *frag_buf;
 	size_t payload;
 	uint8_t seqnum;
@@ -60,14 +60,14 @@ fido_bluetooth_fragment_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t
 }
 
 int
-fido_bluetooth_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
+fido_ble_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
 {
 	switch(cmd) {
 		case CTAP_CMD_INIT:
 			return FIDO_OK;
 		case CTAP_CMD_CBOR:
 		case CTAP_CMD_MSG:
-			return fido_bluetooth_fragment_tx(d, CTAPBLE_MSG, buf, count);
+			return fido_ble_fragment_tx(d, CTAPBLE_MSG, buf, count);
 			break;
 	}
 	if (cmd == CTAP_CMD_INIT)
@@ -99,7 +99,7 @@ rx_init(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 static int
 rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 {
-	size_t fragment_len = fido_bluetooth_get_cp_size(d);
+	size_t fragment_len = fido_ble_get_cp_size(d);
 	uint8_t *reply;
 	uint8_t seq;
 	size_t payload;
@@ -167,7 +167,7 @@ out:
 }
 
 int 
-fido_bluetooth_rx(fido_dev_t *d, uint8_t cmd, u_char *buf, size_t count, int ms)
+fido_ble_rx(fido_dev_t *d, uint8_t cmd, u_char *buf, size_t count, int ms)
 {
 	switch(cmd) {
 		case CTAP_CMD_INIT:
@@ -180,13 +180,13 @@ fido_bluetooth_rx(fido_dev_t *d, uint8_t cmd, u_char *buf, size_t count, int ms)
 }
 
 bool
-fido_is_bluetooth(const char *path)
+fido_is_ble(const char *path)
 {
 	return !strncmp(path, FIDO_BLE_PREFIX, strlen(FIDO_BLE_PREFIX));
 }
 
 int
-fido_dev_set_bluetooth(fido_dev_t *d)
+fido_dev_set_ble(fido_dev_t *d)
 {
 	if (d->io_handle != NULL) {
 		fido_log_debug("%s: device open", __func__);
@@ -194,14 +194,14 @@ fido_dev_set_bluetooth(fido_dev_t *d)
 	}
 	d->io_own = true;
 	d->io = (fido_dev_io_t) {
-		fido_bluetooth_open,
-		fido_bluetooth_close,
-		fido_bluetooth_read,
-		fido_bluetooth_write,
+		fido_ble_open,
+		fido_ble_close,
+		fido_ble_read,
+		fido_ble_write,
 	};
 	d->transport = (fido_dev_transport_t) {
-		fido_bluetooth_rx,
-		fido_bluetooth_tx,
+		fido_ble_rx,
+		fido_ble_tx,
 	};
 
 	return 0;

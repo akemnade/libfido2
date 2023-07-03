@@ -172,12 +172,12 @@ static void iterate_over_all_objs(sd_bus_message *reply,
 }
 
 void *
-fido_bluetooth_open(const char *path)
+fido_ble_open(const char *path)
 {
 	struct ble *newdev;
 	sd_bus_message *reply = NULL;
 	int ret;
-	if (!fido_is_bluetooth(path))
+	if (!fido_is_ble(path))
 		return NULL;
 
 	path += strlen(FIDO_BLE_PREFIX);
@@ -270,7 +270,7 @@ out:
 	return NULL;
 }
 
-void fido_bluetooth_close(void *handle)
+void fido_ble_close(void *handle)
 {
 	struct ble *dev = (struct ble *)handle;
 	close(dev->status_fd);
@@ -286,7 +286,7 @@ void fido_bluetooth_close(void *handle)
 }
 
 int
-fido_bluetooth_read(void *handle, unsigned char *buf, size_t len, int ms)
+fido_ble_read(void *handle, unsigned char *buf, size_t len, int ms)
 {
 	struct ble *dev = (struct ble *)handle;
 	ssize_t r;
@@ -301,7 +301,7 @@ fido_bluetooth_read(void *handle, unsigned char *buf, size_t len, int ms)
 }
 
 int
-fido_bluetooth_write(void *handle, const unsigned char *buf, size_t len)
+fido_ble_write(void *handle, const unsigned char *buf, size_t len)
 {
 	struct ble *dev = (struct ble *)handle;
 	sd_bus_message *send_msg;
@@ -327,7 +327,7 @@ out:
 }
 
 size_t
-fido_bluetooth_get_cp_size(fido_dev_t *d)
+fido_ble_get_cp_size(fido_dev_t *d)
 {
 	return ((struct ble *)d->io_handle)->controlpoint_size;
 }
@@ -390,14 +390,14 @@ static int init_ble_fido_dev(fido_dev_info_t *di,
 		(di->manufacturer = strdup("BLE")) &&
 		(di->product = strdup(name))) {
 		di->io = (fido_dev_io_t) {
-			fido_bluetooth_open,
-			fido_bluetooth_close,
-			fido_bluetooth_read,
-			fido_bluetooth_write,
+			fido_ble_open,
+			fido_ble_close,
+			fido_ble_read,
+			fido_ble_write,
 		};
 		di->transport = (fido_dev_transport_t) {
-			fido_bluetooth_rx,
-			fido_bluetooth_tx,
+			fido_ble_rx,
+			fido_ble_tx,
 		};
 
 		return 0;
@@ -411,7 +411,7 @@ static int init_ble_fido_dev(fido_dev_info_t *di,
 	return -1;
 }
 
-static void fido_bluetooth_add_device(void *data, const char *path, sd_bus_message *reply)
+static void fido_ble_add_device(void *data, const char *path, sd_bus_message *reply)
 {
 	struct manifest_ctx *ctx = (struct manifest_ctx *) data;
 	const char *iface;
@@ -429,7 +429,7 @@ static void fido_bluetooth_add_device(void *data, const char *path, sd_bus_messa
 }
 
 int
-fido_bluetooth_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
+fido_ble_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 {
 	sd_bus *bus;
 	sd_bus_message *reply;
@@ -458,7 +458,7 @@ fido_bluetooth_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 
 	sd_bus_message_rewind(reply, 1);
 	/* search what is connected */
-	iterate_over_all_objs(reply, fido_bluetooth_add_device, &ctx);
+	iterate_over_all_objs(reply, fido_ble_add_device, &ctx);
 
 	sd_bus_message_unref(reply);
 	sd_bus_unref(bus);
