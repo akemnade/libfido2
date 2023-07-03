@@ -263,7 +263,7 @@ fido_dev_info_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 {
 	*olen = 0;
 
-#ifdef USE_BLUETOOTH
+#ifdef USE_BLE
 	run_manifest(devlist, ilen, olen, "bluetooth", fido_bluetooth_manifest);
 #endif
 	run_manifest(devlist, ilen, olen, "hid", fido_hid_manifest);
@@ -308,7 +308,7 @@ fido_dev_open(fido_dev_t *dev, const char *path)
 		return FIDO_ERR_INTERNAL;
 	}
 #endif
-#ifdef USE_BLUETOOTH
+#ifdef USE_BLE
 	if (fido_is_bluetooth(path) && fido_dev_set_bluetooth(dev) < 0) {
 		fido_log_debug("%s: fido_dev_set_pcsc", __func__);
 		return FIDO_ERR_INTERNAL;

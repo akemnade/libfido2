@@ -180,7 +180,7 @@ fido_bluetooth_open(const char *path)
 	if (!fido_is_bluetooth(path))
 		return NULL;
 
-	path += strlen(FIDO_BLUETOOTH_PREFIX);
+	path += strlen(FIDO_BLE_PREFIX);
 
 	newdev = calloc(1, sizeof(*newdev));
 	if (!newdev)
@@ -386,7 +386,7 @@ static int init_ble_fido_dev(fido_dev_info_t *di,
 			      const char *path, const char *name)
 {
 	memset(di, 0, sizeof(*di));
-	if (asprintf(&di->path, "%s%s", FIDO_BLUETOOTH_PREFIX, path) &&
+	if (asprintf(&di->path, "%s%s", FIDO_BLE_PREFIX, path) &&
 		(di->manufacturer = strdup("BLE")) &&
 		(di->product = strdup(name))) {
 		di->io = (fido_dev_io_t) {

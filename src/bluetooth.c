@@ -182,7 +182,7 @@ fido_bluetooth_rx(fido_dev_t *d, uint8_t cmd, u_char *buf, size_t count, int ms)
 bool
 fido_is_bluetooth(const char *path)
 {
-	return !strncmp(path, FIDO_BLUETOOTH_PREFIX, strlen(FIDO_BLUETOOTH_PREFIX));
+	return !strncmp(path, FIDO_BLE_PREFIX, strlen(FIDO_BLE_PREFIX));
 }
 
 int
