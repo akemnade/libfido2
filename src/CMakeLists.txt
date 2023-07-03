@@ -52,7 +52,7 @@ if(FUZZ)
 endif()
 
 if(BLE_LINUX)
-	list(APPEND FIDO_SOURCES bluetooth.c bluetooth_linux.c)
+	list(APPEND FIDO_SOURCES ble.c ble_linux.c)
 endif()
 
 if(NFC_LINUX)
