@@ -6,55 +6,97 @@
 #define CTAPBLE_MSG 0x83
 #define CTAPBLE_CANCEL 0xBE
 #define CTAPBLE_ERROR 0xBF
+#define CTAPBLE_MAX_FRAME_LEN 512
+#define CTAPBLE_INIT_HEADER_LEN 3
+#define CTAPBLE_CONT_HEADER_LEN 1
+
+
+#ifndef MIN
+#define MIN(x, y) ((x) > (y) ? (y) : (x))
+#endif
+
+union frame {
+	struct {
+		uint8_t cmd;
+		uint8_t hlen;
+		uint8_t llen;
+		uint8_t data[CTAPBLE_MAX_FRAME_LEN - CTAPBLE_INIT_HEADER_LEN];
+	} init;
+	struct {
+		uint8_t seq;
+		uint8_t data[CTAPBLE_MAX_FRAME_LEN - CTAPBLE_CONT_HEADER_LEN];
+	} cont;
+};
+
+static size_t
+tx_preamble(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
+{
+	union frame frag_buf;
+	size_t fragment_len = MIN(fido_ble_get_cp_size(d), CTAPBLE_MAX_FRAME_LEN);
+	int r;
+
+	if (fragment_len <= CTAPBLE_INIT_HEADER_LEN)
+		return 0;
+
+	frag_buf.init.cmd = cmd;
+	frag_buf.init.hlen = (count >> 8) & 0xff;
+	frag_buf.init.llen = count & 0xff;
+
+	count = MIN(count, fragment_len - CTAPBLE_INIT_HEADER_LEN);
+	memcpy(frag_buf.init.data, buf, count);
+
+	count += CTAPBLE_INIT_HEADER_LEN;
+	r = d->io.write(d->io_handle, (const u_char *)&frag_buf, count);
+	explicit_bzero(&frag_buf, sizeof(frag_buf));
+
+	if ((r < 0) || ((size_t)r != count))
+		return 0;
+
+	return count - CTAPBLE_INIT_HEADER_LEN;
+}
+
+static size_t
+tx_cont(fido_dev_t *d, uint8_t seq, const u_char *buf, size_t count)
+{
+	union frame frag_buf;
+	int r;
+	size_t fragment_len = MIN(fido_ble_get_cp_size(d), CTAPBLE_MAX_FRAME_LEN);
+
+	if (fragment_len <= CTAPBLE_CONT_HEADER_LEN)
+		return 0;
+
+	frag_buf.cont.seq = seq;
+	count = MIN(count, fragment_len - CTAPBLE_CONT_HEADER_LEN);
+	memcpy(frag_buf.cont.data, buf, count);
+
+	count += CTAPBLE_CONT_HEADER_LEN;
+	r = d->io.write(d->io_handle, (const u_char *)&frag_buf, count);
+	explicit_bzero(&frag_buf, sizeof(frag_buf));
+
+	if ((r < 0) || ((size_t)r != count))
+		return 0;
+
+	return count - CTAPBLE_CONT_HEADER_LEN;
+}
 
 static int
 fido_ble_fragment_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
 {
-	size_t fragment_len = fido_ble_get_cp_size(d);
-	u_char *frag_buf;
-	size_t payload;
-	uint8_t seqnum;
+	size_t n, sent;
 
-	if (fragment_len <= 3)
-		return -1;
-
-	payload = fragment_len - 3;
-	frag_buf = calloc(1, fragment_len);
-	if (!frag_buf)
-		return -1;
-
-	frag_buf[0] = cmd;
-	frag_buf[1] = (count >> 8) & 0xff;
-	frag_buf[2] = count & 0xff;
-	if (payload > count)
-		payload = count;
-
-	memcpy(frag_buf + 3, buf, payload);
-	d->io.write(d->io_handle, frag_buf, payload + 3);
-
-	count -= payload;
-	seqnum = 0;
-	buf += payload;
-	while (count > 0) {
-		payload = fragment_len - 1;
-		if (payload > count)
-			payload = count;
-
-		memcpy(frag_buf + 1, buf, payload);
-		frag_buf[0] = seqnum;
-		if (d->io.write(d->io_handle, frag_buf, payload + 1) < 0)
-			break;
-
-		count -= payload;
-		buf += payload;
-		seqnum++;
-		seqnum &= 0x7F;
+	if ((sent = tx_preamble(d, cmd, buf, count)) == 0) {
+		fido_log_debug("%s: tx_preamble", __func__);
+		return (-1);
 	}
 
-	free(frag_buf);
+	for (uint8_t seq = 0; sent < count; sent += n) {
+		if ((n = tx_cont(d, seq++, buf + sent, count - sent)) == 0) {
+			fido_log_debug("%s: tx_frame", __func__);
+			return (-1);
+		}
 
-	if (count > 0)
-		return -1;
+		seq &= 0x7f;
+	}
 
 	return 0;
 }
@@ -68,11 +110,7 @@ fido_ble_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
 		case CTAP_CMD_CBOR:
 		case CTAP_CMD_MSG:
 			return fido_ble_fragment_tx(d, CTAPBLE_MSG, buf, count);
-			break;
 	}
-	if (cmd == CTAP_CMD_INIT)
-		return FIDO_OK;
-
 
 	return FIDO_ERR_INTERNAL;
 }
@@ -166,7 +204,7 @@ out:
 	return ret;
 }
 
-int 
+int
 fido_ble_rx(fido_dev_t *d, uint8_t cmd, u_char *buf, size_t count, int ms)
 {
 	switch(cmd) {
