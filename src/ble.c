@@ -137,61 +137,60 @@ rx_init(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 static int
 rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 {
+	union frame reply;
 	size_t fragment_len = fido_ble_get_cp_size(d);
-	uint8_t *reply;
 	uint8_t seq;
 	size_t payload;
 	size_t reply_length;
 	int ret;
-	if (fragment_len <= 3) {
+	if (fragment_len <= CTAPBLE_INIT_HEADER_LEN) {
 		return -1;
 	}
-	reply = calloc(1, fragment_len);
-	payload = fragment_len - 3;
+
+	payload = fragment_len - CTAPBLE_INIT_HEADER_LEN;
 	if (count < payload)
 		payload = count;
 
 	do {
-		ret = d->io.read(d->io_handle, reply, payload + 3, ms);
+		ret = d->io.read(d->io_handle, (u_char *)&reply,
+		    payload + CTAPBLE_INIT_HEADER_LEN, ms);
 		if (ret <= 0)
 			goto out;
-	} while (reply[0] == CTAPBLE_KEEPALIVE);
+	} while (reply.init.cmd == CTAPBLE_KEEPALIVE);
 
-	if ((reply[0] != CTAPBLE_MSG) || (ret <= 3)) {
+	if ((reply.init.cmd != CTAPBLE_MSG) || (ret <= CTAPBLE_INIT_HEADER_LEN)) {
 		ret = -1;
 		goto out;
 	}
-	ret -= 3;
+	ret -= CTAPBLE_INIT_HEADER_LEN;
 
-	reply_length = ((size_t)reply[1]) << 8 | reply[2];
-	if (reply_length > count)
-		reply_length = count;
+	reply_length = ((size_t)reply.init.hlen) << 8 | reply.init.llen;
+	reply_length = MIN(count, reply_length);
 
-	if (reply_length < count)
-		count = reply_length;
+	count = MIN(count, reply_length);
 
-	memcpy(buf, reply + 3, (size_t)ret);
+	memcpy(buf, reply.init.data, (size_t)ret);
 	count -= (size_t)ret;
 	buf += ret;
 	seq = 0;
 
 	while(count > 0) {
-		payload = fragment_len - 1;
-		if (count < payload)
-			payload = count;
+		payload = fragment_len - CTAPBLE_CONT_HEADER_LEN;
+		payload = MIN(count, payload);
 
-		ret = d->io.read(d->io_handle, reply, payload + 1, ms);
+		ret = d->io.read(d->io_handle, (u_char *) &reply,
+		    payload + CTAPBLE_CONT_HEADER_LEN, ms);
 		if (ret <= 1) {
 			if (ret >= 0)
 				ret = -1;
 			goto out;
 		}
 		ret--;
-		if (reply[0] != seq) {
+		if (reply.cont.seq != seq) {
 			ret = -1;
 			goto out;
 		}
-		memcpy(buf, reply + 1, (size_t) ret);
+		memcpy(buf, reply.cont.data, (size_t) ret);
 
 		seq++;
 		count -= (size_t) ret;
@@ -199,8 +198,7 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 	}
 	ret = (int)reply_length;
 out:
-	explicit_bzero(reply, fragment_len);
-	free(reply);
+	explicit_bzero(&reply, sizeof(reply));
 	return ret;
 }
 
