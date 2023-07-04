@@ -41,7 +41,8 @@ struct manifest_ctx {
 	size_t *olen;
 };
 
-static void found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *reply)
+static void
+found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *reply)
 {
 	bool matches = false;
 	bool status_found = false;
@@ -99,7 +100,9 @@ static void found_gatt_characteristic(struct ble *newdev, const char *path, sd_b
 	if (service_revision_found)
 		newdev->paths.service_revision = strdup(path);
 }
-static void found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
+
+static void
+found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
 {
 	bool matches = false;
 	bool service_found = false;
@@ -133,7 +136,8 @@ static void found_gatt_service(struct ble *newdev, const char *path, sd_bus_mess
 	}
 }
 
-static void collect_device_chars(void *data, const char *path, sd_bus_message *reply)
+static void
+collect_device_chars(void *data, const char *path, sd_bus_message *reply)
 {
 	struct ble *newdev = (struct ble *)data;
 	const char *iface;
