@@ -154,8 +154,10 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 	do {
 		ret = d->io.read(d->io_handle, (u_char *)&reply,
 		    payload + CTAPBLE_INIT_HEADER_LEN, ms);
-		if (ret <= 0)
+		if (ret <= 0) {
+			fido_log_debug("%s: read header", __func__);
 			goto out;
+		}
 	} while (reply.init.cmd == CTAPBLE_KEEPALIVE);
 
 	if ((reply.init.cmd != CTAPBLE_MSG) || (ret <= CTAPBLE_INIT_HEADER_LEN)) {
@@ -183,6 +185,7 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 		if (ret <= 1) {
 			if (ret >= 0)
 				ret = -1;
+			fido_log_debug("%s: read contr", __func__);
 			goto out;
 		}
 		ret--;
