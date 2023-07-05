@@ -162,8 +162,6 @@ int fido_ble_rx(fido_dev_t *, uint8_t, unsigned char *, size_t, int);
 int fido_ble_tx(fido_dev_t *, uint8_t, const unsigned char *, size_t);
 size_t fido_ble_get_cp_size(fido_dev_t *d);
 
-
-
 /* generic i/o */
 int fido_rx_cbor_status(fido_dev_t *, int *);
 int fido_rx(fido_dev_t *, uint8_t, void *, size_t, int *);
