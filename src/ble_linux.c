@@ -357,7 +357,7 @@ fido_ble_write(void *handle, const unsigned char *buf, size_t len)
 out:
 	sd_bus_message_unref(send_msg);
 
-	return (r > 0) ? (int)len : r;
+	return (r >= 0) ? (int)len : -1;
 }
 
 size_t
