@@ -57,18 +57,18 @@ found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *
 	if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sv}") < 0)
 		return;
 
-	while (0 < sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv")) {
+	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv") > 0) {
 		const char *prop;
-		if (0 <= sd_bus_message_read_basic(reply, 's', &prop)) {
+		if (sd_bus_message_read_basic(reply, 's', &prop) >= 0) {
 			if (!strcmp(prop, "Service")) {
 				const char *devpath;
-				if (0 <= sd_bus_message_read(reply, "v", "o", &devpath) &&
+				if (sd_bus_message_read(reply, "v", "o", &devpath) >= 0 &&
 				    !strcmp(devpath, newdev->paths.service)) {
 					matches = true;
 				}
 			} else if (!strcmp(prop, "UUID")) {
 				const char *uuid;
-				if (0 <= sd_bus_message_read(reply, "v", "s", &uuid)) {
+				if (sd_bus_message_read(reply, "v", "s", &uuid) >= 0) {
 					if (!strcmp(uuid, FIDO_STATUS_UUID))
 						status_found = true;
 					if (!strcmp(uuid, FIDO_CONTROL_POINT_UUID))
@@ -109,18 +109,18 @@ found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
 	if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sv}") < 0)
 		return;
 
-	while (0 < sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv")) {
+	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv") > 0) {
 		const char *prop;
-		if (0 <= sd_bus_message_read_basic(reply, 's', &prop)) {
+		if (sd_bus_message_read_basic(reply, 's', &prop) >= 0) {
 			if (!strcmp(prop, "Device")) {
 				const char *devpath;
-				if (0 <= sd_bus_message_read(reply, "v", "o", &devpath) &&
+				if (sd_bus_message_read(reply, "v", "o", &devpath) >= 0 &&
 				    !strcmp(devpath, newdev->paths.dev)) {
 					matches = true;
 				}
 			} else if (!strcmp(prop, "UUID")) {
 				const char *uuid;
-				if (0 <= sd_bus_message_read(reply, "v", "s", &uuid)) {
+				if (sd_bus_message_read(reply, "v", "s", &uuid) >= 0) {
 					if (!strcmp(uuid, FIDO_SERVICE_UUID))
 						service_found = true;
 				}
@@ -159,14 +159,14 @@ static void iterate_over_all_objs(sd_bus_message *reply,
 	if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{oa{sa{sv}}}") <= 0)
 		return;
 
-	while (0 < sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "oa{sa{sv}}")) {
+	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "oa{sa{sv}}") > 0) {
 		const char *ifacepath = NULL;
 		if (sd_bus_message_read_basic(reply, 'o', &ifacepath) <= 0)
 			return;
 
 		if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sa{sv}}") < 0)
 			return;
-		while (0 < sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sa{sv}")) {
+		while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sa{sv}") > 0) {
 			new_dbus_interface(data, ifacepath, reply);
 			sd_bus_message_exit_container(reply);
 		}
@@ -194,12 +194,12 @@ fido_ble_open(const char *path)
 	if (!newdev->paths.dev)
 		goto out;
 
-	if (0 > sd_bus_default_system(&newdev->bus))
+	if (sd_bus_default_system(&newdev->bus) < 0)
 		goto out;
 
-	if (0 > sd_bus_call_method(newdev->bus, "org.bluez",
+	if (sd_bus_call_method(newdev->bus, "org.bluez",
 		path, "org.freedesktop.DBus.Properties", "GetAll", NULL, &reply,
-		"s", DBUS_DEV_IFACE))
+		"s", DBUS_DEV_IFACE) < 0)
 		goto out;
 
 	if (!ble_fido_is_useable_device(DBUS_DEV_IFACE, reply, false, NULL))
@@ -223,37 +223,37 @@ fido_ble_open(const char *path)
 	    newdev->paths.service_revision) {
 		uint8_t cp_len[2];
 		uint8_t revision;
-		if (0 > sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.control_point_length,
-					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0))
+		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.control_point_length,
+					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 
-		if (0 > sd_bus_message_read(reply, "ay", 2, cp_len, cp_len + 1))
+		if (sd_bus_message_read(reply, "ay", 2, cp_len, cp_len + 1) < 0)
 			goto out;
 
 		sd_bus_message_unref(reply);
 		reply = NULL;
 
-		if (0 > sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.service_revision,
-					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0))
+		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.service_revision,
+					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
-		if (0 > sd_bus_message_read(reply, "ay", 1, &revision))
+		if (sd_bus_message_read(reply, "ay", 1, &revision) < 0)
 			goto out;
 
 		/* for simplicity, we allow now only FIDO2 */
 		if (!(revision & 0x20))
 			goto out;
 
-		if (0 > sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.service_revision,
-				DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, 0x20, 0))
+		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.service_revision,
+				DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, 0x20, 0) < 0)
 			goto out;
 
 		newdev->controlpoint_size = ((size_t)cp_len[0] << 8) + cp_len[1];
-		if (0 > sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.status,
-					DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0))
+		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.status,
+					DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 
 		sd_bus_message_rewind(reply, 1);
-		if (0 > sd_bus_message_read_basic(reply, 'h', &newdev->status_fd))
+		if (sd_bus_message_read_basic(reply, 'h', &newdev->status_fd) < 0)
 			goto out;
 		return newdev;
 	}
@@ -319,7 +319,7 @@ fido_ble_write(void *handle, const unsigned char *buf, size_t len)
 	if (r < 0)
 		goto out;
 
-	sd_bus_message_append(send_msg, "a{sv}", 0);
+	r = sd_bus_message_append(send_msg, "a{sv}", 0);
 	if (r < 0)
 		goto out;
 
@@ -349,7 +349,7 @@ static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply
 		return false;
 	}
 	sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sv}");
-	while (0 < sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv")) {
+	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv") > 0) {
 		const char *propname;
 		int boolval;
 		ret = sd_bus_message_read(reply, "sv", &propname, "b", &boolval);
@@ -369,7 +369,7 @@ static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply
 			   (sd_bus_message_enter_container(reply, SD_BUS_TYPE_VARIANT, "as") >= 0)) {
 				if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "s") >= 0) {
 					const char *uuid;
-					while(sd_bus_message_read_basic(reply, 's', &uuid)) {
+					while(sd_bus_message_read_basic(reply, 's', &uuid) > 0) {
 						if (!strcasecmp(uuid, FIDO_SERVICE_UUID))
 							has_service = true;
 					}
