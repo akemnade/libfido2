@@ -173,6 +173,8 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 		return -1;
 	}
 
+	count = MIN(reply_length, count);
+
 	if (fido_buf_write(&buf, &count, reply.init.data, (size_t)ret) < 0)
 		return -1;
 
@@ -187,10 +189,10 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 		if (ret <= 1) {
 			if (ret >= 0)
 				ret = -1;
-			fido_log_debug("%s: read contr", __func__);
+			fido_log_debug("%s: read cont", __func__);
 			goto out;
 		}
-		ret--;
+		ret -= CTAPBLE_CONT_HEADER_LEN;
 		if (reply.cont.seq != seq) {
 			ret = -1;
 			goto out;

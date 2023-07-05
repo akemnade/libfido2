@@ -328,7 +328,7 @@ fido_ble_read(void *handle, unsigned char *buf, size_t len, int ms)
 		return -1;
 
 	r = read(dev->status_fd, buf, len);
-	if ((size_t)r != len)
+	if (r < 0)
 		return -1;
 
 	return (int)r;
