@@ -42,7 +42,7 @@ struct manifest_ctx {
 };
 
 static int
-found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *reply)
+found_gatt_characteristic(struct ble *dev, const char *path, sd_bus_message *reply)
 {
 	bool matches = false;
 	bool status_found = false;
@@ -50,7 +50,7 @@ found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *
 	bool control_point_length_found = false;
 	bool service_revision_found = false;
 
-	if (!newdev->paths.service) {
+	if (!dev->paths.service) {
 		if (sd_bus_message_skip(reply, "a{sv}") < 0)
 			return -1;
 
@@ -73,7 +73,7 @@ found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *
 			if (sd_bus_message_read(reply, "v", "o", &devpath) <= 0)
 				return -1;
 
-			if (!strcmp(devpath, newdev->paths.service))
+			if (!strcmp(devpath, dev->paths.service))
 				matches = true;
 
 		} else if (!strcmp(prop, "UUID")) {
@@ -103,22 +103,22 @@ found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *
 		return 0;
 
 	if (status_found)
-		newdev->paths.status = strdup(path);
+		dev->paths.status = strdup(path);
 
 	if (control_point_found)
-		newdev->paths.control_point = strdup(path);
+		dev->paths.control_point = strdup(path);
 
 	if (control_point_length_found)
-		newdev->paths.control_point_length = strdup(path);
+		dev->paths.control_point_length = strdup(path);
 
 	if (service_revision_found)
-		newdev->paths.service_revision = strdup(path);
+		dev->paths.service_revision = strdup(path);
 
 	return 0;
 }
 
 static int
-found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
+found_gatt_service(struct ble *dev, const char *path, sd_bus_message *reply)
 {
 	bool matches = false;
 	bool service_found = false;
@@ -139,7 +139,7 @@ found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
 			if (sd_bus_message_read(reply, "v", "o", &devpath) < 0)
 				return -1;
 
-			if (!strcmp(devpath, newdev->paths.dev))
+			if (!strcmp(devpath, dev->paths.dev))
 				matches = true;
 
 		} else if (!strcmp(prop, "UUID")) {
@@ -160,7 +160,7 @@ found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
 		return -1;
 
 	if (matches && service_found) {
-		newdev->paths.service = strdup(path);
+		dev->paths.service = strdup(path);
 	}
 	return 0;
 }
@@ -168,16 +168,16 @@ found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
 static int
 collect_device_chars(void *data, const char *path, sd_bus_message *reply)
 {
-	struct ble *newdev = (struct ble *)data;
+	struct ble *dev = (struct ble *)data;
 	const char *iface;
 	if (sd_bus_message_read_basic(reply, 's', &iface) < 0)
 		return -1;
 
 	if (!strcmp(iface, DBUS_SERVICE_IFACE))
-		return found_gatt_service(newdev, path, reply);
+		return found_gatt_service(dev, path, reply);
 
 	if (!strcmp(iface, DBUS_CHAR_IFACE))
-		return found_gatt_characteristic(newdev, path, reply);
+		return found_gatt_characteristic(dev, path, reply);
 
 	return sd_bus_message_skip(reply, "a{sv}") < 0 ? -1 : 0;
 }
@@ -214,7 +214,7 @@ static int iterate_over_all_objs(sd_bus_message *reply,
 void *
 fido_ble_open(const char *path)
 {
-	struct ble *newdev;
+	struct ble *dev;
 	sd_bus_message *reply = NULL;
 	int ret;
 	if (!fido_is_ble(path))
@@ -222,19 +222,19 @@ fido_ble_open(const char *path)
 
 	path += strlen(FIDO_BLE_PREFIX);
 
-	newdev = calloc(1, sizeof(*newdev));
-	if (!newdev)
+	dev = calloc(1, sizeof(*dev));
+	if (!dev)
 		return NULL;
 
-	newdev->status_fd = -1;
-	newdev->paths.dev = strdup(path);
-	if (!newdev->paths.dev)
+	dev->status_fd = -1;
+	dev->paths.dev = strdup(path);
+	if (!dev->paths.dev)
 		goto out;
 
-	if (sd_bus_default_system(&newdev->bus) < 0)
+	if (sd_bus_default_system(&dev->bus) < 0)
 		goto out;
 
-	if (sd_bus_call_method(newdev->bus, "org.bluez",
+	if (sd_bus_call_method(dev->bus, "org.bluez",
 		path, "org.freedesktop.DBus.Properties", "GetAll", NULL, &reply,
 		"s", DBUS_DEV_IFACE) < 0)
 		goto out;
@@ -244,24 +244,24 @@ fido_ble_open(const char *path)
 
 	sd_bus_message_unref(reply);
 	reply = NULL;
-	ret = sd_bus_call_method(newdev->bus, "org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects", NULL, &reply, "");
+	ret = sd_bus_call_method(dev->bus, "org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects", NULL, &reply, "");
 	if (ret <= 0)
 		goto out;
 
 	sd_bus_message_rewind(reply, 1);
-	if (iterate_over_all_objs(reply, collect_device_chars, newdev) < 0)
+	if (iterate_over_all_objs(reply, collect_device_chars, dev) < 0)
 		goto out;
 
 	sd_bus_message_unref(reply);
 	reply = NULL;
 
-	if (newdev->paths.status &&
-	    newdev->paths.control_point &&
-	    newdev->paths.control_point_length &&
-	    newdev->paths.service_revision) {
+	if (dev->paths.status &&
+	    dev->paths.control_point &&
+	    dev->paths.control_point_length &&
+	    dev->paths.service_revision) {
 		uint8_t cp_len[2];
 		uint8_t revision;
-		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.control_point_length,
+		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.control_point_length,
 					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 
@@ -271,7 +271,7 @@ fido_ble_open(const char *path)
 		sd_bus_message_unref(reply);
 		reply = NULL;
 
-		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.service_revision,
+		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.service_revision,
 					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 		if (sd_bus_message_read(reply, "ay", 1, &revision) < 0)
@@ -281,25 +281,25 @@ fido_ble_open(const char *path)
 		if (!(revision & 0x20))
 			goto out;
 
-		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.service_revision,
+		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.service_revision,
 				DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, 0x20, 0) < 0)
 			goto out;
 
-		newdev->controlpoint_size = ((size_t)cp_len[0] << 8) + cp_len[1];
-		if (sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.status,
+		dev->controlpoint_size = ((size_t)cp_len[0] << 8) + cp_len[1];
+		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.status,
 					DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 
 		sd_bus_message_rewind(reply, 1);
-		if (sd_bus_message_read_basic(reply, 'h', &newdev->status_fd) < 0)
+		if (sd_bus_message_read_basic(reply, 'h', &dev->status_fd) < 0)
 			goto out;
-		return newdev;
+		return dev;
 	}
 out:
 	if (reply)
 		sd_bus_message_unref(reply);
 
-	fido_ble_close(newdev);
+	fido_ble_close(dev);
 	return NULL;
 }
 
