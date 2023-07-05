@@ -106,11 +106,12 @@ fido_ble_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
 {
 	switch(cmd) {
 		case CTAP_CMD_INIT:
-			return FIDO_OK;
+			return 0;
 		case CTAP_CMD_CBOR:
 		case CTAP_CMD_MSG:
 			return fido_ble_fragment_tx(d, CTAPBLE_MSG, buf, count);
 	}
+	fido_log_debug("%s: unsupported command %02x", __func__, cmd);
 
 	return FIDO_ERR_INTERNAL;
 }
@@ -167,7 +168,10 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 	ret -= CTAPBLE_INIT_HEADER_LEN;
 
 	reply_length = ((size_t)reply.init.hlen) << 8 | reply.init.llen;
-	reply_length = MIN(count, reply_length);
+	if (reply_length > count) {
+		fido_log_debug("%s: more data in reply than expected", __func__);
+		return -1;
+	}
 
 	count = MIN(count, reply_length);
 
@@ -209,12 +213,12 @@ int
 fido_ble_rx(fido_dev_t *d, uint8_t cmd, u_char *buf, size_t count, int ms)
 {
 	switch(cmd) {
-		case CTAP_CMD_INIT:
-			return rx_init(d, buf, count, ms);
-		case CTAP_CMD_CBOR:
-			return rx_fragments(d, buf, count, ms);
-		default:
-			return FIDO_ERR_INTERNAL;
+	case CTAP_CMD_INIT:
+		return rx_init(d, buf, count, ms);
+	case CTAP_CMD_CBOR:
+		return rx_fragments(d, buf, count, ms);
+	default:
+		return -1;
 	}
 }
 
