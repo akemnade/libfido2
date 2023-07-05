@@ -54,10 +54,10 @@ found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *
 		sd_bus_message_skip(reply, "a{sv}");
 		return;
 	}
-	if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sv}") < 0)
+	if (sd_bus_message_enter_container(reply, 'a', "{sv}") < 0)
 		return;
 
-	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv") > 0) {
+	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *prop;
 		if (sd_bus_message_read_basic(reply, 's', &prop) >= 0) {
 			if (!strcmp(prop, "Service")) {
@@ -106,10 +106,10 @@ found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
 {
 	bool matches = false;
 	bool service_found = false;
-	if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sv}") < 0)
+	if (sd_bus_message_enter_container(reply, 'a', "{sv}") < 0)
 		return;
 
-	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv") > 0) {
+	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *prop;
 		if (sd_bus_message_read_basic(reply, 's', &prop) >= 0) {
 			if (!strcmp(prop, "Device")) {
@@ -156,17 +156,17 @@ static void iterate_over_all_objs(sd_bus_message *reply,
 				  const char *,
 				  sd_bus_message *), void *data)
 {
-	if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{oa{sa{sv}}}") <= 0)
+	if (sd_bus_message_enter_container(reply, 'a', "{oa{sa{sv}}}") <= 0)
 		return;
 
-	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "oa{sa{sv}}") > 0) {
+	while (sd_bus_message_enter_container(reply, 'e', "oa{sa{sv}}") > 0) {
 		const char *ifacepath = NULL;
 		if (sd_bus_message_read_basic(reply, 'o', &ifacepath) <= 0)
 			return;
 
-		if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sa{sv}}") < 0)
+		if (sd_bus_message_enter_container(reply, 'a', "{sa{sv}}") < 0)
 			return;
-		while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sa{sv}") > 0) {
+		while (sd_bus_message_enter_container(reply, 'e', "sa{sv}") > 0) {
 			new_dbus_interface(data, ifacepath, reply);
 			sd_bus_message_exit_container(reply);
 		}
@@ -348,8 +348,8 @@ static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply
 	if (strcmp(iface, DBUS_DEV_IFACE)) {
 		return false;
 	}
-	sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "{sv}");
-	while (sd_bus_message_enter_container(reply, SD_BUS_TYPE_DICT_ENTRY, "sv") > 0) {
+	sd_bus_message_enter_container(reply, 'a', "{sv}");
+	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *propname;
 		int boolval;
 		ret = sd_bus_message_read(reply, "sv", &propname, "b", &boolval);
@@ -367,7 +367,7 @@ static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply
 			    name != NULL && sd_bus_message_read(reply, "v", "s", name) >= 0) {}
 			if (ret >= 0 && !strcmp(propname, "UUIDs") &&
 			   (sd_bus_message_enter_container(reply, SD_BUS_TYPE_VARIANT, "as") >= 0)) {
-				if (sd_bus_message_enter_container(reply, SD_BUS_TYPE_ARRAY, "s") >= 0) {
+				if (sd_bus_message_enter_container(reply, 'a', "s") >= 0) {
 					const char *uuid;
 					while(sd_bus_message_read_basic(reply, 's', &uuid) > 0) {
 						if (!strcasecmp(uuid, FIDO_SERVICE_UUID))
