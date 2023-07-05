@@ -19,7 +19,7 @@
 #define DBUS_ADAPTER_IFACE "org.bluez.Adapter1"
 #define DBUS_GATTMANAGER_IFACE "org.bluez.GattManager1"
 
-static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, bool allow_unconnected, const char **name);
+static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, const char **name);
 struct ble {
 	sd_bus *bus;
 	struct {
@@ -239,7 +239,7 @@ fido_ble_open(const char *path)
 		"s", DBUS_DEV_IFACE) < 0)
 		goto out;
 
-	if (!ble_fido_is_useable_device(DBUS_DEV_IFACE, reply, false, NULL))
+	if (!ble_fido_is_useable_device(DBUS_DEV_IFACE, reply, NULL))
 		goto out;
 
 	sd_bus_message_unref(reply);
@@ -368,7 +368,7 @@ fido_ble_get_cp_size(fido_dev_t *d)
 
 
 static bool
-ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, bool allow_unconnected, const char **name)
+ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, const char **name)
 {
 	int ret;
 	bool connected = false;
@@ -414,7 +414,7 @@ ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, bool allow
 		sd_bus_message_exit_container(reply); /* sv */
 	}
 	sd_bus_message_exit_container(reply);  /* {sv} */
-	return (allow_unconnected || connected) && (allow_unconnected || resolved) && has_service && paired;
+	return connected && resolved && has_service && paired;
 }
 
 static int
@@ -454,7 +454,7 @@ fido_ble_add_device(void *data, const char *path, sd_bus_message *reply)
 	const char *iface;
 	if (sd_bus_message_read_basic(reply, 's', &iface) > 0) {
 		const char *name;
-		if (ble_fido_is_useable_device(iface, reply, false, &name)) {
+		if (ble_fido_is_useable_device(iface, reply, &name)) {
 			if (*ctx->olen < ctx->ilen) {
 				if (!init_ble_fido_dev(&ctx->devlist[*ctx->olen], path, name))
 					(*ctx->olen)++;
