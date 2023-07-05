@@ -1,6 +1,7 @@
 #include <sys/types.h>
 #include <systemd/sd-bus.h>
 #include <systemd/sd-bus-vtable.h>
+#include <unistd.h>
 
 #include "fido.h"
 #include "fido/param.h"
@@ -21,7 +22,6 @@
 static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, bool allow_unconnected, const char **name);
 struct ble {
 	sd_bus *bus;
-	sd_bus_slot *slot;
 	struct {
 		char *dev;
 		char *service;
@@ -31,8 +31,7 @@ struct ble {
 		char *service_revision;
 	} paths;
 	size_t controlpoint_size;
-	uint8_t *reply_buf;
-	size_t reply_len;
+	int status_fd;
 };
 
 struct manifest_ctx {
@@ -148,54 +147,6 @@ static void collect_device_chars(void *data, const char *path, sd_bus_message *r
 	}
 }
 
-static int read_cb(sd_bus_message *m, void *userdata,
-		sd_bus_error *ret_error)
-{
-	struct ble *dev = (struct ble *)userdata;
-	const char *iface;
-
-	(void)ret_error;
-	sd_bus_message_rewind(m, 1);
-	if (sd_bus_message_read_basic(m, 's', &iface) < 0)
-		return 0;
-
-	if (strcmp(iface, DBUS_CHAR_IFACE))
-		return 0;
-
-	if (sd_bus_message_enter_container(m, SD_BUS_TYPE_ARRAY, "{sv}") < 0)
-		return 0;
-
-	while (0 < sd_bus_message_enter_container(m, SD_BUS_TYPE_DICT_ENTRY, "sv")) {
-		const char *prop;
-		if (sd_bus_message_read_basic(m, 's', &prop) < 0) {
-			return 0;
-		}
-
-		if (!strcmp(prop, "Value")) {
-			uint8_t *value;
-			size_t value_len;
-			if (sd_bus_message_enter_container(m, SD_BUS_TYPE_VARIANT, "ay") < 0)
-				return 0;
-
-			if (sd_bus_message_read_array(m, 'y', (void *)&value, &value_len) <= 0)
-				return 0;
-
-			if (value_len > dev->controlpoint_size)
-				value_len = dev->controlpoint_size;
-
-			memcpy(dev->reply_buf, value, value_len);
-			dev->reply_len = value_len;
-
-			return 1;
-		} else {
-			sd_bus_message_skip(m, "v");
-		}
-
-		sd_bus_message_exit_container(m);
-	}
-	return 0;
-}
-
 static void iterate_over_all_objs(sd_bus_message *reply,
 				  void (*new_dbus_interface)(void *,
 				  const char *,
@@ -293,34 +244,24 @@ fido_bluetooth_open(const char *path)
 			goto out;
 
 		newdev->controlpoint_size = ((size_t)cp_len[0] << 8) + cp_len[1];
-		newdev->reply_buf = calloc(1, newdev->controlpoint_size);
-
 		if (0 > sd_bus_call_method(newdev->bus, "org.bluez", newdev->paths.status,
-					DBUS_CHAR_IFACE, "StartNotify", NULL, NULL, ""))
+					DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0))
 			goto out;
 
-		if (0 > sd_bus_match_signal(newdev->bus, &newdev->slot, "org.bluez",
-					newdev->paths.status,
-					"org.freedesktop.DBus.Properties", "PropertiesChanged",
-					read_cb, newdev))
+		sd_bus_message_rewind(reply, 1);
+		if (0 > sd_bus_message_read_basic(reply, 'h', &newdev->status_fd))
 			goto out;
-
 		return newdev;
 	}
 out:
 	if (reply)
 		sd_bus_message_unref(reply);
 
-	if (newdev->reply_buf)
-		explicit_bzero(newdev->reply_buf, newdev->controlpoint_size);
-	free(newdev->reply_buf);
 	free(newdev->paths.service_revision);
 	free(newdev->paths.control_point_length);
 	free(newdev->paths.control_point);
 	free(newdev->paths.service);
 	free(newdev->paths.dev);
-	if (newdev->slot)
-		sd_bus_slot_unref(newdev->slot);
 
 	if (newdev->bus)
 		sd_bus_unref(newdev->bus);
@@ -332,19 +273,12 @@ out:
 void fido_bluetooth_close(void *handle)
 {
 	struct ble *dev = (struct ble *)handle;
-	sd_bus_call_method(dev->bus, "org.bluez", dev->paths.status,
-			   DBUS_CHAR_IFACE, "StopNotify", NULL, NULL, "");
-	if (dev->reply_buf)
-		explicit_bzero(dev->reply_buf, dev->controlpoint_size);
-	free(dev->reply_buf);
+	close(dev->status_fd);
 	free(dev->paths.service_revision);
 	free(dev->paths.control_point_length);
 	free(dev->paths.control_point);
 	free(dev->paths.service);
 	free(dev->paths.dev);
-	if (dev->slot)
-		sd_bus_slot_unref(dev->slot);
-
 	if (dev->bus)
 		sd_bus_unref(dev->bus);
 
@@ -355,30 +289,15 @@ int
 fido_bluetooth_read(void *handle, unsigned char *buf, size_t len, int ms)
 {
 	struct ble *dev = (struct ble *)handle;
-	dev->reply_len = 0;
-	while(dev->reply_len == 0) {
-		int ret = sd_bus_process(dev->bus, NULL);
-		if (ret < 0)
-			return FIDO_ERR_INTERNAL;
+	ssize_t r;
+	if (fido_hid_unix_wait(dev->status_fd, ms, NULL) < 0)
+		return -1;
 
-		if (ret == 0) {
-			ret = sd_bus_wait(dev->bus, ms < 0 ? UINT64_MAX : (uint64_t)ms * 1000);
-			if (ret == 0) /* timeout */
-				return -1;
+	r = read(dev->status_fd, buf, len);
+	if ((size_t)r != len)
+		return -1;
 
-			if (ret < 0)
-				return FIDO_ERR_INTERNAL;
-		} else if (dev->reply_len > 0) {
-			if (dev->reply_len < len)
-				len = dev->reply_len;
-
-			dev->reply_len = 0;
-			memcpy(buf, dev->reply_buf, len);
-			return (int)len;
-		}
-	}
-
-	return FIDO_ERR_INTERNAL;
+	return (int)r;
 }
 
 int
@@ -400,7 +319,6 @@ fido_bluetooth_write(void *handle, const unsigned char *buf, size_t len)
 	if (r < 0)
 		goto out;
 
-	dev->reply_len = 0;
 	r = sd_bus_call(dev->bus, send_msg, 0, NULL, NULL);
 out:
 	sd_bus_message_unref(send_msg);
