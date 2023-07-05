@@ -235,8 +235,8 @@ fido_ble_open(const char *path)
 		goto out;
 
 	if (sd_bus_call_method(dev->bus, "org.bluez",
-		path, "org.freedesktop.DBus.Properties", "GetAll", NULL, &reply,
-		"s", DBUS_DEV_IFACE) < 0)
+	    path, "org.freedesktop.DBus.Properties", "GetAll", NULL, &reply,
+	    "s", DBUS_DEV_IFACE) < 0)
 		goto out;
 
 	if (!ble_fido_is_useable_device(DBUS_DEV_IFACE, reply, NULL))
@@ -262,7 +262,7 @@ fido_ble_open(const char *path)
 		uint8_t cp_len[2];
 		uint8_t revision;
 		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.control_point_length,
-					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
+				       DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 
 		if (sd_bus_message_read(reply, "ay", 2, cp_len, cp_len + 1) < 0)
@@ -272,7 +272,7 @@ fido_ble_open(const char *path)
 		reply = NULL;
 
 		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.service_revision,
-					DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
+				       DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 		if (sd_bus_message_read(reply, "ay", 1, &revision) < 0)
 			goto out;
@@ -282,12 +282,12 @@ fido_ble_open(const char *path)
 			goto out;
 
 		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.service_revision,
-				DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, 0x20, 0) < 0)
+				       DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, 0x20, 0) < 0)
 			goto out;
 
 		dev->controlpoint_size = ((size_t)cp_len[0] << 8) + cp_len[1];
 		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.status,
-					DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0) < 0)
+				       DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0) < 0)
 			goto out;
 
 		sd_bus_message_rewind(reply, 1);
@@ -489,7 +489,7 @@ fido_ble_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 
 	ctx.bus = bus;
 	ret = sd_bus_call_method(bus, "org.bluez", "/", "org.freedesktop.DBus.ObjectManager",
-				 "GetManagedObjects", NULL, &reply, "");
+	    "GetManagedObjects", NULL, &reply, "");
 	if (ret <= 0) {
 		sd_bus_unref(bus);
 		return FIDO_ERR_INTERNAL;
