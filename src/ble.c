@@ -173,11 +173,9 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 		return -1;
 	}
 
-	count = MIN(count, reply_length);
+	if (fido_buf_write(&buf, &count, reply.init.data, (size_t)ret) < 0)
+		return -1;
 
-	memcpy(buf, reply.init.data, (size_t)ret);
-	count -= (size_t)ret;
-	buf += ret;
 	seq = 0;
 
 	while(count > 0) {
@@ -197,11 +195,12 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 			ret = -1;
 			goto out;
 		}
-		memcpy(buf, reply.cont.data, (size_t) ret);
+
+		if (fido_buf_write(&buf, &count, reply.cont.data, (size_t)ret) < 0)
+			return -1;
 
 		seq++;
-		count -= (size_t) ret;
-		buf += ret;
+		seq &= 0x7f;
 	}
 	ret = (int)reply_length;
 out:
