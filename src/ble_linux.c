@@ -41,7 +41,7 @@ struct manifest_ctx {
 	size_t *olen;
 };
 
-static void
+static int
 found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *reply)
 {
 	bool matches = false;
@@ -51,42 +51,56 @@ found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *
 	bool service_revision_found = false;
 
 	if (!newdev->paths.service) {
-		sd_bus_message_skip(reply, "a{sv}");
-		return;
+		if (sd_bus_message_skip(reply, "a{sv}") < 0)
+			return -1;
+
+		return 0;
 	}
 	if (sd_bus_message_enter_container(reply, 'a', "{sv}") < 0)
-		return;
+		return -1;
 
 	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *prop;
-		if (sd_bus_message_read_basic(reply, 's', &prop) >= 0) {
-			if (!strcmp(prop, "Service")) {
-				const char *devpath;
-				if (sd_bus_message_read(reply, "v", "o", &devpath) >= 0 &&
-				    !strcmp(devpath, newdev->paths.service)) {
-					matches = true;
-				}
-			} else if (!strcmp(prop, "UUID")) {
-				const char *uuid;
-				if (sd_bus_message_read(reply, "v", "s", &uuid) >= 0) {
-					if (!strcmp(uuid, FIDO_STATUS_UUID))
-						status_found = true;
-					if (!strcmp(uuid, FIDO_CONTROL_POINT_UUID))
-						control_point_found = true;
-					if (!strcmp(uuid, FIDO_CONTROL_POINT_LENGTH_UUID))
-						control_point_length_found = true;
-					if (!strcmp(uuid, FIDO_SERVICE_REVISION_UUID))
-						service_revision_found = true;
-				}
-			} else {
-				sd_bus_message_skip(reply, "v");
-			}
+		int r = sd_bus_message_read_basic(reply, 's', &prop);
+		if (r < 0)
+			return -1;
+
+		if (r == 0)
+			continue;
+
+		if (!strcmp(prop, "Service")) {
+			const char *devpath;
+			if (sd_bus_message_read(reply, "v", "o", &devpath) <= 0)
+				return -1;
+
+			if (!strcmp(devpath, newdev->paths.service))
+				matches = true;
+
+		} else if (!strcmp(prop, "UUID")) {
+			const char *uuid;
+			if (sd_bus_message_read(reply, "v", "s", &uuid) <= 0)
+				return -1;
+
+			if (!strcmp(uuid, FIDO_STATUS_UUID))
+				status_found = true;
+			if (!strcmp(uuid, FIDO_CONTROL_POINT_UUID))
+				control_point_found = true;
+			if (!strcmp(uuid, FIDO_CONTROL_POINT_LENGTH_UUID))
+				control_point_length_found = true;
+			if (!strcmp(uuid, FIDO_SERVICE_REVISION_UUID))
+				service_revision_found = true;
+		} else {
+			if (sd_bus_message_skip(reply, "v") < 0)
+				return -1;
 		}
-		sd_bus_message_exit_container(reply);
+		if (sd_bus_message_exit_container(reply) < 0)
+			return -1;
 	}
-	sd_bus_message_exit_container(reply);
+	if (sd_bus_message_exit_container(reply) < 0)
+		return -1;
+
 	if (!matches)
-	       return;
+		return 0;
 
 	if (status_found)
 		newdev->paths.status = strdup(path);
@@ -99,80 +113,102 @@ found_gatt_characteristic(struct ble *newdev, const char *path, sd_bus_message *
 
 	if (service_revision_found)
 		newdev->paths.service_revision = strdup(path);
+
+	return 0;
 }
 
-static void
+static int
 found_gatt_service(struct ble *newdev, const char *path, sd_bus_message *reply)
 {
 	bool matches = false;
 	bool service_found = false;
 	if (sd_bus_message_enter_container(reply, 'a', "{sv}") < 0)
-		return;
+		return -1;
 
 	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *prop;
-		if (sd_bus_message_read_basic(reply, 's', &prop) >= 0) {
-			if (!strcmp(prop, "Device")) {
-				const char *devpath;
-				if (sd_bus_message_read(reply, "v", "o", &devpath) >= 0 &&
-				    !strcmp(devpath, newdev->paths.dev)) {
-					matches = true;
-				}
-			} else if (!strcmp(prop, "UUID")) {
-				const char *uuid;
-				if (sd_bus_message_read(reply, "v", "s", &uuid) >= 0) {
-					if (!strcmp(uuid, FIDO_SERVICE_UUID))
-						service_found = true;
-				}
-			} else {
-				sd_bus_message_skip(reply, "v");
-			}
+		int r = sd_bus_message_read_basic(reply, 's', &prop);
+		if (r < 0)
+			return -1;
+
+		if (r == 0)
+			continue;
+
+		if (!strcmp(prop, "Device")) {
+			const char *devpath;
+			if (sd_bus_message_read(reply, "v", "o", &devpath) < 0)
+				return -1;
+
+			if (!strcmp(devpath, newdev->paths.dev))
+				matches = true;
+
+		} else if (!strcmp(prop, "UUID")) {
+			const char *uuid;
+			if (sd_bus_message_read(reply, "v", "s", &uuid) < 0)
+				return -1;
+
+			if (!strcmp(uuid, FIDO_SERVICE_UUID))
+				service_found = true;
+		} else {
+			if (sd_bus_message_skip(reply, "v") < 0)
+				return -1;
 		}
-		sd_bus_message_exit_container(reply);
+		if (sd_bus_message_exit_container(reply) < 0)
+			return -1;
 	}
-	sd_bus_message_exit_container(reply);
+	if (sd_bus_message_exit_container(reply) < 0)
+		return -1;
+
 	if (matches && service_found) {
 		newdev->paths.service = strdup(path);
 	}
+	return 0;
 }
 
-static void
+static int
 collect_device_chars(void *data, const char *path, sd_bus_message *reply)
 {
 	struct ble *newdev = (struct ble *)data;
 	const char *iface;
-	if (sd_bus_message_read_basic(reply, 's', &iface) >= 0) {
-		if (!strcmp(iface, DBUS_SERVICE_IFACE))
-			found_gatt_service(newdev, path, reply);
-		else if (!strcmp(iface, DBUS_CHAR_IFACE))
-			found_gatt_characteristic(newdev, path, reply);
-		else
-			sd_bus_message_skip(reply, "a{sv}");
-	}
+	if (sd_bus_message_read_basic(reply, 's', &iface) < 0)
+		return -1;
+
+	if (!strcmp(iface, DBUS_SERVICE_IFACE))
+		return found_gatt_service(newdev, path, reply);
+
+	if (!strcmp(iface, DBUS_CHAR_IFACE))
+		return found_gatt_characteristic(newdev, path, reply);
+
+	return sd_bus_message_skip(reply, "a{sv}") < 0 ? -1 : 0;
 }
 
-static void iterate_over_all_objs(sd_bus_message *reply,
-				  void (*new_dbus_interface)(void *,
+static int iterate_over_all_objs(sd_bus_message *reply,
+				  int (*new_dbus_interface)(void *,
 				  const char *,
 				  sd_bus_message *), void *data)
 {
 	if (sd_bus_message_enter_container(reply, 'a', "{oa{sa{sv}}}") <= 0)
-		return;
+		return -1;
 
 	while (sd_bus_message_enter_container(reply, 'e', "oa{sa{sv}}") > 0) {
 		const char *ifacepath = NULL;
 		if (sd_bus_message_read_basic(reply, 'o', &ifacepath) <= 0)
-			return;
+			return -1;
 
 		if (sd_bus_message_enter_container(reply, 'a', "{sa{sv}}") < 0)
-			return;
+			return -1;
 		while (sd_bus_message_enter_container(reply, 'e', "sa{sv}") > 0) {
 			new_dbus_interface(data, ifacepath, reply);
-			sd_bus_message_exit_container(reply);
+			if (sd_bus_message_exit_container(reply) < 0)
+				return -1;
 		}
-		sd_bus_message_exit_container(reply);
-		sd_bus_message_exit_container(reply);
+		if (sd_bus_message_exit_container(reply) < 0)
+			return -1;
+
+		if (sd_bus_message_exit_container(reply) < 0)
+			return -1;
 	}
+	return 0;
 }
 
 void *
@@ -212,7 +248,8 @@ fido_ble_open(const char *path)
 		goto out;
 
 	sd_bus_message_rewind(reply, 1);
-	iterate_over_all_objs(reply, collect_device_chars, newdev);
+	if (iterate_over_all_objs(reply, collect_device_chars, newdev) < 0)
+		goto out;
 
 	sd_bus_message_unref(reply);
 	reply = NULL;
@@ -337,7 +374,8 @@ fido_ble_get_cp_size(fido_dev_t *d)
 }
 
 
-static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, bool allow_unconnected, const char **name)
+static bool
+ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, bool allow_unconnected, const char **name)
 {
 	int ret;
 	bool connected = false;
@@ -386,8 +424,9 @@ static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply
 	return (allow_unconnected || connected) && (allow_unconnected || resolved) && has_service && paired;
 }
 
-static int init_ble_fido_dev(fido_dev_info_t *di,
-			      const char *path, const char *name)
+static int
+init_ble_fido_dev(fido_dev_info_t *di,
+    const char *path, const char *name)
 {
 	memset(di, 0, sizeof(*di));
 	if (asprintf(&di->path, "%s%s", FIDO_BLE_PREFIX, path) &&
@@ -415,21 +454,24 @@ static int init_ble_fido_dev(fido_dev_info_t *di,
 	return -1;
 }
 
-static void fido_ble_add_device(void *data, const char *path, sd_bus_message *reply)
+static int
+fido_ble_add_device(void *data, const char *path, sd_bus_message *reply)
 {
 	struct manifest_ctx *ctx = (struct manifest_ctx *) data;
 	const char *iface;
 	if (sd_bus_message_read_basic(reply, 's', &iface) > 0) {
 		const char *name;
 		if (ble_fido_is_useable_device(iface, reply, false, &name)) {
-			if (!init_ble_fido_dev(&ctx->devlist[*ctx->olen], path, name)) {
-				if (++(*ctx->olen) == ctx->ilen)
-					return;
+			if (*ctx->olen < ctx->ilen) {
+				if (!init_ble_fido_dev(&ctx->devlist[*ctx->olen], path, name))
+					(*ctx->olen)++;
 			}
 		}
 		sd_bus_message_rewind(reply, 0);
 		sd_bus_message_skip(reply, "sa{sv}");
 	}
+
+	return 0;
 }
 
 int
