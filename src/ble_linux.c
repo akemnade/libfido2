@@ -61,12 +61,8 @@ found_gatt_characteristic(struct ble *dev, const char *path, sd_bus_message *rep
 
 	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *prop;
-		int r = sd_bus_message_read_basic(reply, 's', &prop);
-		if (r < 0)
+		if (sd_bus_message_read_basic(reply, 's', &prop) <= 0)
 			return -1;
-
-		if (r == 0)
-			continue;
 
 		if (!strcmp(prop, "Service")) {
 			const char *devpath;
@@ -127,12 +123,8 @@ found_gatt_service(struct ble *dev, const char *path, sd_bus_message *reply)
 
 	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *prop;
-		int r = sd_bus_message_read_basic(reply, 's', &prop);
-		if (r < 0)
+		if (sd_bus_message_read_basic(reply, 's', &prop) <= 0)
 			return -1;
-
-		if (r == 0)
-			continue;
 
 		if (!strcmp(prop, "Device")) {
 			const char *devpath;
