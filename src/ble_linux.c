@@ -226,6 +226,7 @@ fido_ble_open(const char *path)
 	if (!newdev)
 		return NULL;
 
+	newdev->status_fd = -1;
 	newdev->paths.dev = strdup(path);
 	if (!newdev->paths.dev)
 		goto out;
@@ -298,23 +299,15 @@ out:
 	if (reply)
 		sd_bus_message_unref(reply);
 
-	free(newdev->paths.service_revision);
-	free(newdev->paths.control_point_length);
-	free(newdev->paths.control_point);
-	free(newdev->paths.service);
-	free(newdev->paths.dev);
-
-	if (newdev->bus)
-		sd_bus_unref(newdev->bus);
-
-	free(newdev);
+	fido_ble_close(newdev);
 	return NULL;
 }
 
 void fido_ble_close(void *handle)
 {
 	struct ble *dev = (struct ble *)handle;
-	close(dev->status_fd);
+	if (dev->status_fd >= 0)
+		close(dev->status_fd);
 	free(dev->paths.service_revision);
 	free(dev->paths.control_point_length);
 	free(dev->paths.control_point);
