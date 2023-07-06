@@ -160,7 +160,7 @@ rx_preamble(fido_dev_t *d, unsigned char **buf, size_t *count, size_t *reply_len
 		}
 	} while (reply.init.cmd == CTAPBLE_KEEPALIVE);
 
-	if ((reply.init.cmd != CTAPBLE_MSG) && ret <= CTAPBLE_INIT_HEADER_LEN) {
+	if ((reply.init.cmd != CTAPBLE_MSG) || ret <= CTAPBLE_INIT_HEADER_LEN) {
 		ret = -1;
 		goto out;
 	}
