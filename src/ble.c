@@ -105,15 +105,15 @@ int
 fido_ble_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
 {
 	switch(cmd) {
-		case CTAP_CMD_INIT:
-			return 0;
-		case CTAP_CMD_CBOR:
-		case CTAP_CMD_MSG:
-			return fido_ble_fragment_tx(d, CTAPBLE_MSG, buf, count);
+	case CTAP_CMD_INIT:
+		return 0;
+	case CTAP_CMD_CBOR:
+	case CTAP_CMD_MSG:
+		return fido_ble_fragment_tx(d, CTAPBLE_MSG, buf, count);
+	default:
+		fido_log_debug("%s: unsupported command %02x", __func__, cmd);
+		return -1;
 	}
-	fido_log_debug("%s: unsupported command %02x", __func__, cmd);
-
-	return -1;
 }
 
 static int
@@ -219,6 +219,7 @@ fido_ble_rx(fido_dev_t *d, uint8_t cmd, u_char *buf, size_t count, int ms)
 	case CTAP_CMD_CBOR:
 		return rx_fragments(d, buf, count, ms);
 	default:
+		fido_log_debug("%s: unsupported command %02x", __func__, cmd);
 		return -1;
 	}
 }

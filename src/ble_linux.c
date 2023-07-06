@@ -485,7 +485,7 @@ fido_ble_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 	ctx.devlist = devlist;
 	ctx.olen = olen;
 	ctx.ilen = ilen;
-	if (0>sd_bus_default_system(&bus))
+	if (0 > sd_bus_default_system(&bus))
 		return FIDO_ERR_INTERNAL;
 
 	ctx.bus = bus;
