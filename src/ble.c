@@ -136,21 +136,20 @@ rx_init(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 }
 
 static int
-rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
+rx_preamble(fido_dev_t *d, unsigned char **buf, size_t *count, size_t *reply_length, int ms)
 {
 	union frame reply;
-	size_t fragment_len = fido_ble_get_cp_size(d);
-	uint8_t seq;
-	size_t payload;
-	size_t reply_length;
 	int ret;
+	size_t payload;
+	size_t fragment_len = fido_ble_get_cp_size(d);
+
 	if (fragment_len <= CTAPBLE_INIT_HEADER_LEN) {
 		return -1;
 	}
 
 	payload = fragment_len - CTAPBLE_INIT_HEADER_LEN;
-	if (count < payload)
-		payload = count;
+	if (*count < payload)
+		payload = *count;
 
 	do {
 		ret = d->io.read(d->io_handle, (u_char *)&reply,
@@ -161,53 +160,80 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 		}
 	} while (reply.init.cmd == CTAPBLE_KEEPALIVE);
 
-	if ((reply.init.cmd != CTAPBLE_MSG) || (ret <= CTAPBLE_INIT_HEADER_LEN)) {
+	if ((reply.init.cmd != CTAPBLE_MSG) && ret <= CTAPBLE_INIT_HEADER_LEN) {
 		ret = -1;
 		goto out;
 	}
 	ret -= CTAPBLE_INIT_HEADER_LEN;
-
-	reply_length = ((size_t)reply.init.hlen) << 8 | reply.init.llen;
-	if (reply_length > count) {
+	*reply_length = ((size_t)reply.init.hlen) << 8 | reply.init.llen;
+	if (*reply_length > *count) {
 		fido_log_debug("%s: more data in reply than expected", __func__);
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
-	count = MIN(reply_length, count);
+	*count = MIN(*reply_length, *count);
 
-	if (fido_buf_write(&buf, &count, reply.init.data, (size_t)ret) < 0)
+	if (fido_buf_write(buf, count, reply.init.data, (size_t)ret) < 0) {
+		ret = -1;
+		goto out;
+	}
+	ret = 0;
+out:
+	explicit_bzero(&reply, sizeof(reply));
+	return ret;
+}
+
+static int
+rx_cont(fido_dev_t *d, unsigned char **buf, uint8_t seq, size_t *count, int ms)
+{
+	union frame reply;
+	int ret;
+	size_t payload;
+	size_t fragment_len = fido_ble_get_cp_size(d);
+	payload = fragment_len - CTAPBLE_CONT_HEADER_LEN;
+	payload = MIN(*count, payload);
+	ret = d->io.read(d->io_handle, (u_char *) &reply,
+	    payload + CTAPBLE_CONT_HEADER_LEN, ms);
+
+	if (ret <= CTAPBLE_CONT_HEADER_LEN) {
+		if (ret >= 0)
+			ret = -1;
+		fido_log_debug("%s: read cont", __func__);
+		goto out;
+	}
+	ret -= CTAPBLE_CONT_HEADER_LEN;
+	if (reply.cont.seq != seq) {
+		ret = -1;
+		goto out;
+	}
+
+	if (fido_buf_write(buf, count, reply.cont.data, (size_t)ret) < 0)
+		ret = -1;
+
+out:
+	explicit_bzero(&reply, sizeof(reply));
+	return ret;
+}
+
+static int
+rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
+{
+	uint8_t seq;
+	size_t reply_length;
+
+	if (rx_preamble(d, &buf, &count, &reply_length, ms) < 0)
 		return -1;
 
 	seq = 0;
-
 	while(count > 0) {
-		payload = fragment_len - CTAPBLE_CONT_HEADER_LEN;
-		payload = MIN(count, payload);
-
-		ret = d->io.read(d->io_handle, (u_char *) &reply,
-		    payload + CTAPBLE_CONT_HEADER_LEN, ms);
-		if (ret <= 1) {
-			if (ret >= 0)
-				ret = -1;
-			fido_log_debug("%s: read cont", __func__);
-			goto out;
-		}
-		ret -= CTAPBLE_CONT_HEADER_LEN;
-		if (reply.cont.seq != seq) {
-			ret = -1;
-			goto out;
-		}
-
-		if (fido_buf_write(&buf, &count, reply.cont.data, (size_t)ret) < 0)
+		if (rx_cont(d, &buf, seq, &count, ms) < 0)
 			return -1;
 
 		seq++;
 		seq &= 0x7f;
 	}
-	ret = (int)reply_length;
-out:
-	explicit_bzero(&reply, sizeof(reply));
-	return ret;
+	return (int)reply_length;
 }
 
 int
