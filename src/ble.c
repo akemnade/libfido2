@@ -113,7 +113,7 @@ fido_ble_tx(fido_dev_t *d, uint8_t cmd, const u_char *buf, size_t count)
 	}
 	fido_log_debug("%s: unsupported command %02x", __func__, cmd);
 
-	return FIDO_ERR_INTERNAL;
+	return -1;
 }
 
 static int
