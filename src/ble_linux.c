@@ -25,9 +25,7 @@ struct ble {
 	struct {
 		char *dev;
 		char *service;
-		char *status;
 		char *control_point;
-		char *control_point_length;
 		char *service_revision;
 	} paths;
 	size_t controlpoint_size;
@@ -40,6 +38,65 @@ struct manifest_ctx {
 	size_t ilen;
 	size_t *olen;
 };
+
+static size_t read_cpl(sd_bus *bus, const char *path)
+{
+	uint8_t cp_len[2];
+	sd_bus_message *reply;
+	size_t ret;
+	if (sd_bus_call_method(bus, "org.bluez", path,
+			       DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
+		return 0;
+
+	if (sd_bus_message_read(reply, "ay", 2, cp_len, cp_len + 1) >= 0)
+		ret = ((size_t)cp_len[0] << 8) + cp_len[1];
+	else
+		ret = 0;
+
+	sd_bus_message_unref(reply);
+	return ret;
+}
+
+static int acquire_status(sd_bus *bus, const char *path)
+{
+	int fd;
+	sd_bus_message *reply;
+	if (sd_bus_call_method(bus, "org.bluez", path,
+			       DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0) < 0)
+		return -1;
+
+	if (sd_bus_message_read_basic(reply, 'h', &fd) < 0)
+		return -1;
+
+	return fd;
+}
+
+static int read_revision(sd_bus *bus, const char *path)
+{
+	uint8_t revision;
+	int ret;
+	sd_bus_message *reply;
+	if (sd_bus_call_method(bus, "org.bluez", path,
+			       DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
+		return -1;
+
+	if (sd_bus_message_read(reply, "ay", 1, &revision) >= 0)
+		ret = revision;
+	else
+		ret = -1;
+
+	sd_bus_message_unref(reply);
+	return ret;
+}
+
+static int write_revision(sd_bus *bus, const char *path, uint8_t revision)
+{
+	if (sd_bus_call_method(bus, "org.bluez", path,
+			       DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, revision, 0) < 0)
+		return -1;
+
+	return 0;
+}
 
 static int
 found_gatt_characteristic(struct ble *dev, const char *path, sd_bus_message *reply)
@@ -98,14 +155,20 @@ found_gatt_characteristic(struct ble *dev, const char *path, sd_bus_message *rep
 	if (!matches)
 		return 0;
 
-	if (status_found)
-		dev->paths.status = strdup(path);
+	if (status_found) {
+		dev->status_fd = acquire_status(dev->bus, path);
+		if (dev->status_fd < 0)
+			return -1;
+	}
 
 	if (control_point_found)
 		dev->paths.control_point = strdup(path);
 
-	if (control_point_length_found)
-		dev->paths.control_point_length = strdup(path);
+	if (control_point_length_found) {
+		dev->controlpoint_size = read_cpl(dev->bus, path);
+		if (dev->controlpoint_size == 0)
+			return -1;
+	}
 
 	if (service_revision_found)
 		dev->paths.service_revision = strdup(path);
@@ -248,44 +311,22 @@ fido_ble_open(const char *path)
 	sd_bus_message_unref(reply);
 	reply = NULL;
 
-	if (dev->paths.status &&
+	if (dev->status_fd >=0 &&
 	    dev->paths.control_point &&
-	    dev->paths.control_point_length &&
+	    dev->controlpoint_size > 0 &&
 	    dev->paths.service_revision) {
-		uint8_t cp_len[2];
-		uint8_t revision;
-		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.control_point_length,
-				       DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
-			goto out;
-
-		if (sd_bus_message_read(reply, "ay", 2, cp_len, cp_len + 1) < 0)
-			goto out;
-
-		sd_bus_message_unref(reply);
-		reply = NULL;
-
-		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.service_revision,
-				       DBUS_CHAR_IFACE, "ReadValue", NULL, &reply, "a{sv}", 0) < 0)
-			goto out;
-		if (sd_bus_message_read(reply, "ay", 1, &revision) < 0)
+		int revision;
+		revision = read_revision(dev->bus, dev->paths.service_revision);
+		if (revision < 0)
 			goto out;
 
 		/* for simplicity, we allow now only FIDO2 */
 		if (!(revision & 0x20))
 			goto out;
 
-		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.service_revision,
-				       DBUS_CHAR_IFACE, "WriteValue", NULL, NULL, "aya{sv}", 1, 0x20, 0) < 0)
+		if (write_revision(dev->bus, dev->paths.service_revision, 0x20) < 0)
 			goto out;
 
-		dev->controlpoint_size = ((size_t)cp_len[0] << 8) + cp_len[1];
-		if (sd_bus_call_method(dev->bus, "org.bluez", dev->paths.status,
-				       DBUS_CHAR_IFACE, "AcquireNotify", NULL, &reply, "a{sv}", 0) < 0)
-			goto out;
-
-		sd_bus_message_rewind(reply, 1);
-		if (sd_bus_message_read_basic(reply, 'h', &dev->status_fd) < 0)
-			goto out;
 		return dev;
 	}
 out:
@@ -302,7 +343,6 @@ void fido_ble_close(void *handle)
 	if (dev->status_fd >= 0)
 		close(dev->status_fd);
 	free(dev->paths.service_revision);
-	free(dev->paths.control_point_length);
 	free(dev->paths.control_point);
 	free(dev->paths.service);
 	free(dev->paths.dev);
@@ -421,9 +461,13 @@ init_ble_fido_dev(fido_dev_info_t *di,
     const char *path, const char *name)
 {
 	memset(di, 0, sizeof(*di));
-	if (asprintf(&di->path, "%s%s", FIDO_BLE_PREFIX, path) &&
-		(di->manufacturer = strdup("BLE")) &&
-		(di->product = strdup(name))) {
+	if (asprintf(&di->path, "%s%s", FIDO_BLE_PREFIX, path) == -1) {
+		di->path = NULL;
+	}
+
+	if (di->path &&
+	    (di->manufacturer = strdup("BLE")) &&
+	    (di->product = strdup(name))) {
 		di->io = (fido_dev_io_t) {
 			fido_ble_open,
 			fido_ble_close,
