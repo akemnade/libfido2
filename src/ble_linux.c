@@ -19,7 +19,7 @@
 #define DBUS_ADAPTER_IFACE "org.bluez.Adapter1"
 #define DBUS_GATTMANAGER_IFACE "org.bluez.GattManager1"
 
-static bool ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, const char **name);
+static int ble_fido_is_useable_device(sd_bus_message * reply, const char **name);
 struct ble {
 	sd_bus *bus;
 	struct {
@@ -158,12 +158,9 @@ found_gatt_service(struct ble *dev, const char *path, sd_bus_message *reply)
 }
 
 static int
-collect_device_chars(void *data, const char *path, sd_bus_message *reply)
+collect_device_chars(void *data, const char *path, const char *iface, sd_bus_message *reply)
 {
 	struct ble *dev = (struct ble *)data;
-	const char *iface;
-	if (sd_bus_message_read_basic(reply, 's', &iface) < 0)
-		return -1;
 
 	if (!strcmp(iface, DBUS_SERVICE_IFACE))
 		return found_gatt_service(dev, path, reply);
@@ -175,9 +172,9 @@ collect_device_chars(void *data, const char *path, sd_bus_message *reply)
 }
 
 static int iterate_over_all_objs(sd_bus_message *reply,
-				  int (*new_dbus_interface)(void *,
-				  const char *,
-				  sd_bus_message *), void *data)
+    int (*new_dbus_interface)(void *,
+    const char *, const char *,
+    sd_bus_message *), void *data)
 {
 	if (sd_bus_message_enter_container(reply, 'a', "{oa{sa{sv}}}") <= 0)
 		return -1;
@@ -190,7 +187,11 @@ static int iterate_over_all_objs(sd_bus_message *reply,
 		if (sd_bus_message_enter_container(reply, 'a', "{sa{sv}}") < 0)
 			return -1;
 		while (sd_bus_message_enter_container(reply, 'e', "sa{sv}") > 0) {
-			new_dbus_interface(data, ifacepath, reply);
+			const char *iface;
+			if (sd_bus_message_read_basic(reply, 's', &iface) <= 0)
+				return -1;
+
+			new_dbus_interface(data, ifacepath, iface, reply);
 			if (sd_bus_message_exit_container(reply) < 0)
 				return -1;
 		}
@@ -231,7 +232,7 @@ fido_ble_open(const char *path)
 	    "s", DBUS_DEV_IFACE) < 0)
 		goto out;
 
-	if (!ble_fido_is_useable_device(DBUS_DEV_IFACE, reply, NULL))
+	if (ble_fido_is_useable_device(reply, NULL) <= 0)
 		goto out;
 
 	sd_bus_message_unref(reply);
@@ -359,54 +360,60 @@ fido_ble_get_cp_size(fido_dev_t *d)
 }
 
 
-static bool
-ble_fido_is_useable_device(const char *iface, sd_bus_message * reply, const char **name)
+static int
+ble_fido_is_useable_device(sd_bus_message * reply, const char **name)
 {
 	int ret;
-	bool connected = false;
-	bool paired = false;
-	bool resolved = false;
+	int connected = 0;
+	int paired = 0;
+	int resolved = 0;
 	bool has_service = false;
 
-	if (strcmp(iface, DBUS_DEV_IFACE)) {
-		return false;
-	}
-	sd_bus_message_enter_container(reply, 'a', "{sv}");
+	if (sd_bus_message_enter_container(reply, 'a', "{sv}") < 0)
+		return -1;
+
 	while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
 		const char *propname;
-		int boolval;
-		ret = sd_bus_message_read(reply, "sv", &propname, "b", &boolval);
-		if (ret >= 0) {
-			if (!strcmp(propname, "Connected") && boolval)
-				connected = true;
-			if (!strcmp(propname, "Paired") && boolval)
-				paired = true;
-			if (!strcmp(propname, "ServicesResolved") && boolval)
-				resolved = true;
-		} else {
-			sd_bus_message_rewind(reply, 0);
-			ret = sd_bus_message_read_basic(reply, 's', &propname);
-			if (ret >= 0 && !strcmp(propname, "Name") &&
-			    name != NULL && sd_bus_message_read(reply, "v", "s", name) >= 0) {}
-			if (ret >= 0 && !strcmp(propname, "UUIDs") &&
-			   (sd_bus_message_enter_container(reply, SD_BUS_TYPE_VARIANT, "as") >= 0)) {
-				if (sd_bus_message_enter_container(reply, 'a', "s") >= 0) {
-					const char *uuid;
-					while(sd_bus_message_read_basic(reply, 's', &uuid) > 0) {
-						if (!strcasecmp(uuid, FIDO_SERVICE_UUID))
-							has_service = true;
-					}
-					sd_bus_message_exit_container(reply); /* s */
-				}
-				sd_bus_message_exit_container(reply); /* as */
-			} else {
-				sd_bus_message_skip(reply,"v");
+		ret = sd_bus_message_read_basic(reply, 's', &propname);
+		if (ret <= 0)
+			return -1;
+
+		if (!strcmp(propname, "Connected")) {
+			if (sd_bus_message_read(reply, "v", "b", &connected) < 0)
+				return -1;
+		} else if (!strcmp(propname, "Paired")) {
+			if (sd_bus_message_read(reply, "v", "b", &paired) < 0)
+				return -1;
+		} else if (!strcmp(propname, "ServicesResolved")) {
+			if (sd_bus_message_read(reply, "v", "b", &resolved) < 0)
+				return -1;
+		} else if (!strcmp(propname, "Name")) {
+			if (sd_bus_message_read(reply, "v", "s", name) < 0)
+				return -1;
+		} else if (!strcmp(propname, "UUIDs")) {
+			if (sd_bus_message_enter_container(reply, 'v', "as") < 0)
+				return -1;
+			if (sd_bus_message_enter_container(reply, 'a', "s") < 0)
+				return -1;
+
+			const char *uuid;
+			while(sd_bus_message_read_basic(reply, 's', &uuid) > 0) {
+				if (!strcasecmp(uuid, FIDO_SERVICE_UUID))
+					has_service = true;
+
 			}
+			if (sd_bus_message_exit_container(reply) < 0) /* s */
+				return -1;
+			if (sd_bus_message_exit_container(reply) < 0) /* as */
+				return -1;
+		} else {
+			sd_bus_message_skip(reply,"v");
 		}
-		sd_bus_message_exit_container(reply); /* sv */
+		if (sd_bus_message_exit_container(reply) < 0) /* sv */
+			return -1;
 	}
 	sd_bus_message_exit_container(reply);  /* {sv} */
-	return connected && resolved && has_service && paired;
+	return ((connected != 0) && (resolved != 0) && has_service && (paired != 0)) ? 1 : 0;
 }
 
 static int
@@ -440,20 +447,22 @@ init_ble_fido_dev(fido_dev_info_t *di,
 }
 
 static int
-fido_ble_add_device(void *data, const char *path, sd_bus_message *reply)
+fido_ble_add_device(void *data, const char *path, const char *iface, sd_bus_message *reply)
 {
 	struct manifest_ctx *ctx = (struct manifest_ctx *) data;
-	const char *iface;
-	if (sd_bus_message_read_basic(reply, 's', &iface) > 0) {
-		const char *name;
-		if (ble_fido_is_useable_device(iface, reply, &name)) {
-			if (*ctx->olen < ctx->ilen) {
-				if (!init_ble_fido_dev(&ctx->devlist[*ctx->olen], path, name))
-					(*ctx->olen)++;
-			}
-		}
-		sd_bus_message_rewind(reply, 0);
-		sd_bus_message_skip(reply, "sa{sv}");
+	const char *name;
+	int r;
+
+	if (strcmp(iface, DBUS_DEV_IFACE))
+		return sd_bus_message_skip(reply, "a{sv}") < 0 ? -1 : 0;
+
+	r = ble_fido_is_useable_device(reply, &name);
+	if (r <= 0)
+		return r;
+
+	if (*ctx->olen < ctx->ilen) {
+		if (!init_ble_fido_dev(&ctx->devlist[*ctx->olen], path, name))
+			(*ctx->olen)++;
 	}
 
 	return 0;
