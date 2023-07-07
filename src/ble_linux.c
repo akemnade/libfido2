@@ -2,6 +2,7 @@
 #include <systemd/sd-bus.h>
 #include <systemd/sd-bus-vtable.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "fido.h"
 #include "fido/param.h"
@@ -66,8 +67,12 @@ static int acquire_status(sd_bus *bus, const char *path)
 		return -1;
 
 	if (sd_bus_message_read_basic(reply, 'h', &fd) < 0)
-		return -1;
+		fd = -1;
 
+	if (fd >= 0)
+		fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+
+	sd_bus_message_unref(reply);
 	return fd;
 }
 
