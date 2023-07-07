@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2023 Andreas Kemnade.
+ * Use of this source code is governed by a BSD-style
+ * license that can be found in the LICENSE file.
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
 #include "fido.h"
 #include "fido/param.h"
 
