@@ -222,6 +222,8 @@ rx_fragments(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 	uint8_t seq;
 	size_t reply_length;
 
+	/* written on success in rx_preamble but clang does not know */
+	reply_length = 0;
 	if (rx_preamble(d, &buf, &count, &reply_length, ms) < 0)
 		return -1;
 
