@@ -46,16 +46,21 @@ fido_dev_set_option_flags(fido_dev_t *dev, const fido_cbor_info_t *info)
 		if (strcmp(ptr[i], "clientPin") == 0) {
 			dev->flags |= val[i] ?
 			    FIDO_DEV_PIN_SET : FIDO_DEV_PIN_UNSET;
-		} else if (strcmp(ptr[i], "credMgmt") == 0 ||
-			   strcmp(ptr[i], "credentialMgmtPreview") == 0) {
+		} else if (strcmp(ptr[i], "credMgmt") == 0) {
 			if (val[i])
 				dev->flags |= FIDO_DEV_CREDMAN;
+		} else if (strcmp(ptr[i], "credentialMgmtPreview") == 0) {
+			if (val[i])
+				dev->flags |= FIDO_DEV_CREDMAN_PRE;
 		} else if (strcmp(ptr[i], "uv") == 0) {
 			dev->flags |= val[i] ?
 			    FIDO_DEV_UV_SET : FIDO_DEV_UV_UNSET;
 		} else if (strcmp(ptr[i], "pinUvAuthToken") == 0) {
 			if (val[i])
 				dev->flags |= FIDO_DEV_TOKEN_PERMS;
+		} else if (strcmp(ptr[i], "bioEnroll") == 0) {
+			dev->flags |= val[i] ?
+			    FIDO_DEV_BIO_SET : FIDO_DEV_BIO_UNSET;
 		}
 }
 
@@ -263,6 +268,9 @@ fido_dev_info_manifest(fido_dev_info_t *devlist, size_t ilen, size_t *olen)
 {
 	*olen = 0;
 
+#ifdef USE_BLE
+	run_manifest(devlist, ilen, olen, "ble", fido_ble_manifest);
+#endif
 	run_manifest(devlist, ilen, olen, "hid", fido_hid_manifest);
 #ifdef USE_NFC
 	run_manifest(devlist, ilen, olen, "nfc", fido_nfc_manifest);
@@ -301,6 +309,12 @@ fido_dev_open(fido_dev_t *dev, const char *path)
 #endif
 #ifdef USE_PCSC
 	if (fido_is_pcsc(path) && fido_dev_set_pcsc(dev) < 0) {
+		fido_log_debug("%s: fido_dev_set_pcsc", __func__);
+		return FIDO_ERR_INTERNAL;
+	}
+#endif
+#ifdef USE_BLE
+	if (fido_is_ble(path) && fido_dev_set_ble(dev) < 0) {
 		fido_log_debug("%s: fido_dev_set_pcsc", __func__);
 		return FIDO_ERR_INTERNAL;
 	}
@@ -538,7 +552,7 @@ fido_dev_supports_cred_prot(const fido_dev_t *dev)
 bool
 fido_dev_supports_credman(const fido_dev_t *dev)
 {
-	return (dev->flags & FIDO_DEV_CREDMAN);
+	return (dev->flags & (FIDO_DEV_CREDMAN|FIDO_DEV_CREDMAN_PRE));
 }
 
 bool

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2022 Yubico AB. All rights reserved.
+ * Copyright (c) 2021-2024 Yubico AB. All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the LICENSE file.
  * SPDX-License-Identifier: BSD-2-Clause
@@ -408,6 +408,10 @@ pack_cred_ext(WEBAUTHN_EXTENSIONS *out, const fido_cred_ext_t *in)
 	}
 	out->cExtensions = (DWORD)n;
 	if (in->mask & FIDO_EXT_HMAC_SECRET) {
+		/*
+		 * NOTE: webauthn.dll ignores requests to enable hmac-secret
+		 * unless a discoverable credential is also requested.
+		 */
 		if ((b = calloc(1, sizeof(*b))) == NULL) {
 			fido_log_debug("%s: calloc", __func__);
 			return -1;
@@ -570,7 +574,7 @@ unpack_user_id(fido_assert_t *assert, const WEBAUTHN_ASSERTION *wa)
 static int
 unpack_hmac_secret(fido_assert_t *assert, const WEBAUTHN_ASSERTION *wa)
 {
-	if (wa->dwVersion != WEBAUTHN_ASSERTION_VERSION_3) {
+	if (wa->dwVersion < WEBAUTHN_ASSERTION_VERSION_3) {
 		fido_log_debug("%s: dwVersion %u", __func__,
 		    (unsigned)wa->dwVersion);
 		return 0; /* proceed without hmac-secret */
@@ -731,52 +735,12 @@ translate_fido_cred(struct winhello_cred *ctx, const fido_cred_t *cred,
 	if (cred->rk == FIDO_OPT_TRUE) {
 		opt->bRequireResidentKey = true;
 	}
+	if (cred->ea.mode != 0) {
+		opt->dwVersion = WEBAUTHN_AUTHENTICATOR_MAKE_CREDENTIAL_OPTIONS_VERSION_4;
+		opt->dwEnterpriseAttestation = (DWORD)cred->ea.mode;
+	}
 
 	return FIDO_OK;
-}
-
-static int
-decode_attobj(const cbor_item_t *key, const cbor_item_t *val, void *arg)
-{
-	fido_cred_t *cred = arg;
-	char *name = NULL;
-	int ok = -1;
-
-	if (cbor_string_copy(key, &name) < 0) {
-		fido_log_debug("%s: cbor type", __func__);
-		ok = 0; /* ignore */
-		goto fail;
-	}
-
-	if (!strcmp(name, "fmt")) {
-		if (cbor_decode_fmt(val, &cred->fmt) < 0) {
-			fido_log_debug("%s: cbor_decode_fmt", __func__);
-			goto fail;
-		}
-	} else if (!strcmp(name, "attStmt")) {
-		if (cbor_decode_attstmt(val, &cred->attstmt) < 0) {
-			fido_log_debug("%s: cbor_decode_attstmt", __func__);
-			goto fail;
-		}
-	} else if (!strcmp(name, "authData")) {
-		if (fido_blob_decode(val, &cred->authdata_raw) < 0) {
-			fido_log_debug("%s: fido_blob_decode", __func__);
-			goto fail;
-		}
-		if (cbor_decode_cred_authdata(val, cred->type,
-		    &cred->authdata_cbor, &cred->authdata, &cred->attcred,
-		    &cred->authdata_ext) < 0) {
-			fido_log_debug("%s: cbor_decode_cred_authdata",
-			    __func__);
-			goto fail;
-		}
-	}
-
-	ok = 0;
-fail:
-	free(name);
-
-	return (ok);
 }
 
 static int
@@ -796,12 +760,12 @@ translate_winhello_cred(fido_cred_t *cred,
 		fido_log_debug("%s: cbor_load", __func__);
 		goto fail;
 	}
-	if (cbor_isa_map(item) == false ||
-	    cbor_map_is_definite(item) == false ||
-	    cbor_map_iter(item, cred, decode_attobj) < 0) {
-		fido_log_debug("%s: cbor type", __func__);
+	if (cbor_decode_attobj(item, cred) != 0) {
+		fido_log_debug("%s: cbor_decode_attobj", __func__);
 		goto fail;
 	}
+	if (att->dwVersion >= WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION_4)
+		cred->ea.att = att->bEpAtt;
 
 	r = FIDO_OK;
 fail:

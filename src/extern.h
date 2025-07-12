@@ -58,6 +58,7 @@ cbor_item_t *es256_pk_encode(const es256_pk_t *, int);
 
 /* cbor decoding functions */
 int cbor_decode_attstmt(const cbor_item_t *, fido_attstmt_t *);
+int cbor_decode_attobj(const cbor_item_t *, fido_cred_t *);
 int cbor_decode_bool(const cbor_item_t *, bool *);
 int cbor_decode_cred_authdata(const cbor_item_t *, int, fido_blob_t *,
     fido_authdata_t *, fido_attcred_t *, fido_cred_ext_t *);
@@ -151,6 +152,17 @@ int fido_winhello_get_assert(fido_dev_t *, fido_assert_t *, const char *, int);
 int fido_winhello_get_cbor_info(fido_dev_t *, fido_cbor_info_t *);
 int fido_winhello_make_cred(fido_dev_t *, fido_cred_t *, const char *, int);
 
+/* ble */
+bool fido_is_ble(const char *);
+int fido_dev_set_ble(fido_dev_t *);
+void *fido_ble_open(const char *);
+void  fido_ble_close(void *);
+int fido_ble_read(void *, unsigned char *, size_t, int);
+int fido_ble_write(void *, const unsigned char *, size_t);
+int fido_ble_rx(fido_dev_t *, uint8_t, unsigned char *, size_t, int);
+int fido_ble_tx(fido_dev_t *, uint8_t, const unsigned char *, size_t);
+size_t fido_ble_get_cp_size(fido_dev_t *d);
+
 /* generic i/o */
 int fido_rx_cbor_status(fido_dev_t *, int *);
 int fido_rx(fido_dev_t *, uint8_t, void *, size_t, int *);
@@ -239,6 +251,7 @@ int fido_get_signed_hash_tpm(fido_blob_t *, const fido_blob_t *,
     const fido_blob_t *, const fido_attstmt_t *, const fido_attcred_t *);
 
 /* device manifest functions */
+int fido_ble_manifest(fido_dev_info_t *, size_t, size_t *);
 int fido_hid_manifest(fido_dev_info_t *, size_t, size_t *);
 int fido_nfc_manifest(fido_dev_info_t *, size_t, size_t *);
 int fido_pcsc_manifest(fido_dev_info_t *, size_t, size_t *);
@@ -249,16 +262,19 @@ uint32_t uniform_random(uint32_t);
 #endif
 
 /* internal device capability flags */
-#define FIDO_DEV_PIN_SET	0x001
-#define FIDO_DEV_PIN_UNSET	0x002
-#define FIDO_DEV_CRED_PROT	0x004
-#define FIDO_DEV_CREDMAN	0x008
-#define FIDO_DEV_PIN_PROTOCOL1	0x010
-#define FIDO_DEV_PIN_PROTOCOL2	0x020
-#define FIDO_DEV_UV_SET 	0x040
-#define FIDO_DEV_UV_UNSET	0x080
-#define FIDO_DEV_TOKEN_PERMS	0x100
-#define FIDO_DEV_WINHELLO	0x200
+#define FIDO_DEV_PIN_SET	0x0001
+#define FIDO_DEV_PIN_UNSET	0x0002
+#define FIDO_DEV_CRED_PROT	0x0004
+#define FIDO_DEV_CREDMAN	0x0008
+#define FIDO_DEV_PIN_PROTOCOL1	0x0010
+#define FIDO_DEV_PIN_PROTOCOL2	0x0020
+#define FIDO_DEV_UV_SET 	0x0040
+#define FIDO_DEV_UV_UNSET	0x0080
+#define FIDO_DEV_TOKEN_PERMS	0x0100
+#define FIDO_DEV_WINHELLO	0x0200
+#define FIDO_DEV_CREDMAN_PRE	0x0400
+#define FIDO_DEV_BIO_SET	0x0800
+#define FIDO_DEV_BIO_UNSET	0x1000
 
 /* miscellanea */
 #define FIDO_DUMMY_CLIENTDATA	""
@@ -268,6 +284,7 @@ uint32_t uniform_random(uint32_t);
 #define FIDO_WINHELLO_PATH	"windows://hello"
 #define FIDO_NFC_PREFIX		"nfc:"
 #define FIDO_PCSC_PREFIX	"pcsc:"
+#define FIDO_BLE_PREFIX	"ble:"
 
 #ifdef __cplusplus
 } /* extern "C" */

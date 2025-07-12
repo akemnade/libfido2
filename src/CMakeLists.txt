@@ -51,6 +51,10 @@ if(FUZZ)
 	list(APPEND FIDO_SOURCES ../fuzz/wrap.c)
 endif()
 
+if(BLE_LINUX)
+	list(APPEND FIDO_SOURCES ble.c ble_linux.c)
+endif()
+
 if(NFC_LINUX)
 	list(APPEND FIDO_SOURCES netlink.c nfc.c nfc_linux.c)
 endif()
@@ -123,6 +127,7 @@ list(APPEND TARGET_LIBRARIES
 	${HIDAPI_LIBRARIES}
 	${ZLIB_LIBRARIES}
 	${PCSC_LIBRARIES}
+	${BLE_LIBRARIES}
 )
 
 # static library
@@ -151,8 +156,6 @@ endif()
 install(FILES fido.h DESTINATION include)
 install(DIRECTORY fido DESTINATION include)
 
-if(NOT MSVC)
-	configure_file(libfido2.pc.in libfido2.pc @ONLY)
-	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libfido2.pc"
-		DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
-endif()
+configure_file(libfido2.pc.in libfido2.pc @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libfido2.pc"
+	DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
